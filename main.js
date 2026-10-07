@@ -58,6 +58,15 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, 'src', 'renderer', 'index.html'));
+  // Test hook: CALLREC_AUTORUN_SEC=N records for N seconds then quits (no UI clicks needed).
+  const autoSec = Number(process.env.CALLREC_AUTORUN_SEC);
+  if (autoSec > 0) {
+    win.webContents.once('did-finish-load', () => {
+      setTimeout(toggleRecording, 1500);
+      setTimeout(toggleRecording, 1500 + autoSec * 1000);
+      setTimeout(() => app.quit(), 1500 + autoSec * 1000 + 6000);
+    });
+  }
   // Red traffic light quits (desktop-app-ux rule 4).
   win.on('close', () => app.quit());
 }
