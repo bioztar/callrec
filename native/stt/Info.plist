@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Embedded into the callrec-stt binary at link time by build.sh, via
+  -sectcreate __TEXT __info_plist. The helper is a plain Mach-O executable, not
+  an app bundle, so there is nowhere else for a usage string to live.
+
+  NSSpeechRecognitionUsageDescription is not optional: Apple's documentation for
+  SFSpeechRecognizer.requestAuthorization(_:) states that the app "will crash
+  when you call this method" if the key is absent from the Info.plist of the
+  process the request is attributed to.
+-->
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>com.pro7ocol.callrec.stt</string>
+  <key>CFBundleName</key>
+  <string>callrec-stt</string>
+  <key>CFBundleDisplayName</key>
+  <string>callrec Speech Helper</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>callrec transcribes meeting audio on this Mac so that nothing is sent to a transcription service.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>callrec receives already-captured meeting audio from the callrec app; this helper does not open the microphone itself.</string>
+</dict>
+</plist>

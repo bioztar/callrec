@@ -1,0 +1,280 @@
+'use strict';
+
+// callrec renderer: capture (system audio = Them, mic = Me), live transcript,
+// meters, mixed-audio recorder. All persistence goes through window.callrec.
+
+const api = window.callrec;
+const $ = (id) => document.getElementById(id);
+const els = {
+  title: $('title'), engine: $('engine'), language: $('language'), langNote: $('langNote'),
+  toggle: $('toggleBtn'), timer: $('timer'), openBtn: $('openBtn'), status: $('status'),
+  meterMe: $('meterMe'), meterThem: $('meterThem'), transcript: $('transcript'),
+  permCard: $('permCard'), settings: $('settings'),
+};
+
+let settings = null;
+let session = null; // set while recording
+let lastDir = null;
+
+const LABEL = { ME: 'Me', THEM: 'Them' };
+
+function setStatus(msg, kind = 'idle') { els.status.textContent = msg; els.status.dataset.kind = kind; }
+function mmss(sec) {
+  const s = Math.max(0, Math.floor(sec));
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// ---- echo suppression: drop ME lines that re-heard THEM through the speakers ----
+const recentThem = [];
+const norm = (s) => s.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, '').replace(/\s+/g, ' ').trim();
+function overlap(a, b) {
+  const A = new Set(a.split(' ').filter(Boolean));
+  const B = new Set(b.split(' ').filter(Boolean));
+  if (!A.size || !B.size) return 0;
+  let inter = 0; A.forEach((w) => { if (B.has(w)) inter += 1; });
+  return inter / Math.min(A.size, B.size);
+}
+function isEchoOfThem(text) {
+  const n = norm(text);
+  if (!n) return false;
+  const now = Date.now();
+  while (recentThem.length && now - recentThem[0].t > 8000) recentThem.shift();
+  return recentThem.some((r) => n === r.norm || r.norm.includes(n) || n.includes(r.norm) || overlap(n, r.norm) > 0.6);
+}
+
+// ---- transcript pane ----
+const partialEls = {};
+function renderPartial(speaker, text) {
+  let el = partialEls[speaker];
+  if (!text) { if (el) { el.remove(); delete partialEls[speaker]; } return; }
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'partial';
+    partialEls[speaker] = el;
+    els.transcript.appendChild(el);
+  }
+  el.textContent = `${LABEL[speaker]}: ${text}`;
+  els.transcript.scrollTop = els.transcript.scrollHeight;
+}
+function renderFinal(speaker, text, startSec) {
+  renderPartial(speaker, '');
+  const div = document.createElement('div');
+  div.className = speaker === 'ME' ? 'me' : 'them';
+  const t = document.createElement('span'); t.className = 't'; t.textContent = `[${mmss(startSec)}]`;
+  const b = document.createElement('b'); b.textContent = `${LABEL[speaker]}: `;
+  div.append(t, b, document.createTextNode(text));
+  els.transcript.insertBefore(div, els.transcript.querySelector('.partial'));
+  els.transcript.scrollTop = els.transcript.scrollHeight;
+}
+
+// ---- audio acquisition + meters ----
+async function acquireStreams() {
+  const sys = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+  sys.getVideoTracks().forEach((t) => t.stop());
+  if (!sys.getAudioTracks().length) throw new Error('no system audio track (Screen & System Audio Recording permission?)');
+  const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+  return { sys, mic };
+}
+
+function makeMeter(ctx, stream, el) {
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 1024;
+  ctx.createMediaStreamSource(stream).connect(analyser);
+  const buf = new Float32Array(analyser.fftSize);
+  const meter = { peak: 0, stopped: false };
+  (function tick() {
+    if (meter.stopped) { el.style.width = '0'; return; }
+    analyser.getFloatTimeDomainData(buf);
+    let sum = 0; for (const v of buf) sum += v * v;
+    const rms = Math.sqrt(sum / buf.length);
+    meter.peak = Math.max(meter.peak, rms);
+    el.style.width = `${Math.min(100, Math.round(Math.sqrt(rms) * 140))}%`;
+    requestAnimationFrame(tick);
+  }());
+  return meter;
+}
+
+// ---- recording ----
+async function start() {
+  const engine = els.engine.value;
+  const language = els.language.value;
+  if (engine === 'deepgram' && !settings.hasDeepgramKey) { setStatus('Add your Deepgram key in Settings', 'error'); return; }
+  if (engine === 'native' && !settings.nativeAvailable) { setStatus('Native helper not built — run native/stt/build.sh, or pick Deepgram', 'error'); return; }
+
+  els.toggle.disabled = true;
+  setStatus('Requesting audio…', 'live');
+  let streams;
+  try { streams = await acquireStreams(); } catch (err) {
+    setStatus(`Audio permission problem: ${err.message}. See the permissions card above.`, 'error');
+    els.permCard.hidden = false; els.toggle.disabled = false;
+    return;
+  }
+  const res = await api.sessionStart({ title: els.title.value, engine, language });
+  if (res.error) {
+    streams.sys.getTracks().forEach((t) => t.stop()); streams.mic.getTracks().forEach((t) => t.stop());
+    setStatus(res.error, 'error'); els.toggle.disabled = false;
+    return;
+  }
+
+  els.transcript.textContent = '';
+  els.openBtn.hidden = true;
+  recentThem.length = 0;
+  const t0 = performance.now();
+  const now = () => (performance.now() - t0) / 1000;
+  const ctx = new AudioContext();
+  const meters = [makeMeter(ctx, streams.mic, els.meterMe), makeMeter(ctx, streams.sys, els.meterThem)];
+
+  const utt = {}; // per speaker: start second of the in-progress utterance
+  const handlers = (speaker) => ({
+    label: LABEL[speaker],
+    onStatus: (m) => setStatus(m, 'error'),
+    onPartial: (text) => {
+      if (text && utt[speaker] === undefined) utt[speaker] = now();
+      renderPartial(speaker, text);
+    },
+    onFinal: (text) => {
+      if (speaker === 'THEM') recentThem.push({ norm: norm(text), t: Date.now() });
+      else if (isEchoOfThem(text)) { delete utt[speaker]; return; }
+      const end = now();
+      const startSec = Math.min(utt[speaker] ?? Math.max(0, end - 1), end);
+      delete utt[speaker];
+      api.segment({ speaker, start: startSec, end, text });
+      renderFinal(speaker, text, startSec);
+    },
+  });
+  const connect = (stream, speaker) => (engine === 'deepgram'
+    ? STT.connectDeepgram({ stream, key: res.deepgramKey, language: res.deepgramLanguage, speaker, ...handlers(speaker) })
+    : STT.connectNative({ stream, locale: res.locale, speaker, ...handlers(speaker) }));
+  const sockets = [connect(streams.mic, 'ME'), connect(streams.sys, 'THEM')];
+
+  // Mixed recording, chunks flushed to disk every 3s.
+  const dest = ctx.createMediaStreamDestination();
+  ctx.createMediaStreamSource(streams.sys).connect(dest);
+  ctx.createMediaStreamSource(streams.mic).connect(dest);
+  const writes = [];
+  const recorder = new MediaRecorder(dest.stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 48000 });
+  recorder.ondataavailable = (e) => {
+    if (e.data && e.data.size) writes.push(e.data.arrayBuffer().then((b) => api.recChunk(b)));
+  };
+  recorder.start(3000);
+
+  const timer = setInterval(() => { els.timer.textContent = mmss(now()); }, 500);
+  session = { streams, sockets, ctx, meters, recorder, writes, timer, now, dir: res.dir };
+  lastDir = res.dir;
+  els.toggle.textContent = 'Stop'; els.toggle.classList.add('recording'); els.toggle.disabled = false;
+  [els.engine, els.language, els.title].forEach((e) => { e.disabled = true; });
+  setStatus(`Recording → ${res.dir}${res.note ? ` — ⚠ ${res.note}` : ''}`, 'live');
+}
+
+async function stop() {
+  const s = session;
+  if (!s) return;
+  session = null;
+  els.toggle.disabled = true;
+  setStatus('Finishing…', 'live');
+  clearInterval(s.timer);
+  const duration = s.now();
+  await new Promise((resolve) => { s.recorder.onstop = resolve; try { s.recorder.stop(); } catch { resolve(); } });
+  await Promise.all(s.writes);
+  await Promise.all(s.sockets.map((k) => k.drain()));
+  s.meters.forEach((m) => { m.stopped = true; });
+  s.streams.sys.getTracks().forEach((t) => t.stop());
+  s.streams.mic.getTracks().forEach((t) => t.stop());
+  try { await s.ctx.close(); } catch { /* ignore */ }
+  const dir = await api.sessionStop();
+  lastDir = dir || s.dir;
+  els.toggle.textContent = 'Start'; els.toggle.classList.remove('recording'); els.toggle.disabled = false;
+  [els.engine, els.language, els.title].forEach((e) => { e.disabled = false; });
+  els.timer.textContent = mmss(duration);
+  els.openBtn.hidden = false;
+  setStatus(`Saved ${mmss(duration)} → ${lastDir}`, 'idle');
+}
+
+const toggle = () => (session ? stop() : start());
+
+// ---- settings panel ----
+function refreshLangNote() {
+  const mixedNative = els.engine.value === 'native' && els.language.value === 'mixed';
+  els.langNote.hidden = !mixedNative;
+  els.langNote.textContent = mixedNative
+    ? `Native engine can't mix languages: it will hear your system locale (${navigator.language}) only. Pick Deepgram for true English + Spanish.`
+    : '';
+}
+
+function applySettings(s) {
+  settings = s;
+  $('setRoot').value = s.outputRoot;
+  $('setEngine').value = s.engine;
+  $('setLanguage').value = s.language;
+  $('setShortcut').value = s.shortcut;
+  $('keyState').textContent = s.hasDeepgramKey ? '(saved)' : '(not set)';
+  if (!session) { els.engine.value = s.engine; els.language.value = s.language; }
+  refreshLangNote();
+}
+
+async function saveSetting(patch) { applySettings((await api.setSettings(patch)).settings); }
+
+async function testAudio() {
+  const out = $('testResult');
+  out.textContent = 'Listening for 3 seconds — speak and play some audio…';
+  let streams;
+  try { streams = await acquireStreams(); } catch (err) { out.textContent = `Cannot open audio: ${err.message}`; return; }
+  const ctx = new AudioContext();
+  const me = makeMeter(ctx, streams.mic, els.meterMe);
+  const them = makeMeter(ctx, streams.sys, els.meterThem);
+  await new Promise((r) => setTimeout(r, 3000));
+  me.stopped = them.stopped = true;
+  Object.values(streams).forEach((st) => st.getTracks().forEach((t) => t.stop()));
+  ctx.close();
+  const verdict = (m, name) => `${name}: ${m.peak > 0.005 ? `OK (level ${m.peak.toFixed(3)})` : 'silent — nothing heard'}`;
+  out.textContent = `${verdict(me, 'Microphone')} · ${verdict(them, 'System audio')}`;
+}
+
+async function refreshPermissions() {
+  const p = await api.permStatus();
+  els.permCard.hidden = p.microphone === 'granted' && p.screen === 'granted';
+}
+
+// ---- boot ----
+(async function boot() {
+  applySettings(await api.getSettings());
+  refreshPermissions();
+  window.addEventListener('focus', refreshPermissions);
+
+  els.toggle.addEventListener('click', toggle);
+  els.openBtn.addEventListener('click', () => lastDir && api.openFolder(lastDir));
+  els.engine.addEventListener('change', refreshLangNote);
+  els.language.addEventListener('change', refreshLangNote);
+  api.on('toggle-recording', toggle);
+  api.on('open-settings', () => { els.settings.hidden = false; });
+  $('settingsBtn').addEventListener('click', () => { els.settings.hidden = !els.settings.hidden; });
+
+  $('permMic').addEventListener('click', async () => { await api.askMic(); refreshPermissions(); });
+  $('permMicPane').addEventListener('click', () => api.openPane('microphone'));
+  $('permScreenPane').addEventListener('click', () => api.openPane('screen'));
+  $('permSpeechPane').addEventListener('click', () => api.openPane('speech'));
+
+  $('setRootPick').addEventListener('click', async () => {
+    const dir = await api.pickFolder();
+    if (dir) saveSetting({ outputRoot: dir });
+  });
+  $('setEngine').addEventListener('change', (e) => saveSetting({ engine: e.target.value }));
+  $('setLanguage').addEventListener('change', (e) => saveSetting({ language: e.target.value }));
+  $('setKeySave').addEventListener('click', async () => {
+    const input = $('setKey');
+    const res = await api.setDeepgramKey(input.value);
+    if (res.error) { $('keyState').textContent = res.error; return; }
+    input.value = '';
+    applySettings(await api.getSettings());
+  });
+  $('setKeyClear').addEventListener('click', async () => {
+    await api.setDeepgramKey('');
+    applySettings(await api.getSettings());
+  });
+  $('setShortcutSave').addEventListener('click', async () => {
+    const res = await api.setSettings({ shortcut: $('setShortcut').value.trim() });
+    applySettings(res.settings);
+    $('shortcutState').textContent = res.shortcutOk ? '(applied)' : '(invalid or already taken — not registered)';
+  });
+  $('testBtn').addEventListener('click', testAudio);
+}());

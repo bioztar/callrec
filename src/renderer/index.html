@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>callrec</title>
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' wss://api.deepgram.com; media-src 'self' blob:">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="drag">
+    <h1>callrec</h1>
+    <button id="settingsBtn" class="ghost nodrag">Settings</button>
+  </header>
+
+  <main>
+    <section id="permCard" class="card warn" hidden>
+      <strong>First-run permissions</strong>
+      <p>callrec needs <b>Microphone</b> (your side) and <b>Screen &amp; System Audio Recording</b> (the other side).
+         Native engine also asks for <b>Speech Recognition</b> on first use. After enabling Screen Recording, macOS may ask you to restart callrec.</p>
+      <div class="row">
+        <button id="permMic">Request microphone</button>
+        <button id="permMicPane" class="ghost">Open Microphone settings</button>
+        <button id="permScreenPane" class="ghost">Open Screen &amp; System Audio settings</button>
+        <button id="permSpeechPane" class="ghost">Open Speech Recognition settings</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row">
+        <input id="title" type="text" placeholder="Meeting title (optional)" autocomplete="off">
+      </div>
+      <div class="row">
+        <label>Engine
+          <select id="engine">
+            <option value="native">Native Mac (on-device, free)</option>
+            <option value="deepgram">Deepgram (needs key)</option>
+          </select>
+        </label>
+        <label>Language
+          <select id="language">
+            <option value="mixed">English + Spanish (mixed)</option>
+            <option value="en">English</option>
+            <option value="es">Spanish</option>
+          </select>
+        </label>
+      </div>
+      <p id="langNote" class="note" hidden></p>
+      <div class="row controls">
+        <button id="toggleBtn" class="primary">Start</button>
+        <span id="timer" class="timer">00:00</span>
+        <button id="openBtn" class="ghost" hidden>Open folder</button>
+      </div>
+      <div id="status" class="status" data-kind="idle">Ready.</div>
+    </section>
+
+    <section class="card meters">
+      <div class="meter"><span>Me</span><div class="bar"><i id="meterMe"></i></div></div>
+      <div class="meter"><span>Them</span><div class="bar"><i id="meterThem"></i></div></div>
+    </section>
+
+    <section class="card transcript-card">
+      <div id="transcript" class="transcript" aria-live="polite"></div>
+    </section>
+
+    <section id="settings" class="card" hidden>
+      <h2>Settings</h2>
+      <label>Output folder
+        <div class="row">
+          <input id="setRoot" type="text" readonly>
+          <button id="setRootPick">Choose…</button>
+        </div>
+      </label>
+      <div class="row">
+        <label>Default engine
+          <select id="setEngine">
+            <option value="native">Native Mac (on-device)</option>
+            <option value="deepgram">Deepgram</option>
+          </select>
+        </label>
+        <label>Default language
+          <select id="setLanguage">
+            <option value="mixed">English + Spanish (mixed)</option>
+            <option value="en">English</option>
+            <option value="es">Spanish</option>
+          </select>
+        </label>
+      </div>
+      <label>Deepgram API key <span id="keyState" class="note"></span>
+        <div class="row">
+          <input id="setKey" type="password" placeholder="Paste key to save (stored encrypted)" autocomplete="off">
+          <button id="setKeySave">Save key</button>
+          <button id="setKeyClear" class="ghost">Remove</button>
+        </div>
+      </label>
+      <label>Start/stop shortcut <span id="shortcutState" class="note"></span>
+        <div class="row">
+          <input id="setShortcut" type="text" placeholder="CommandOrControl+Shift+R">
+          <button id="setShortcutSave">Apply</button>
+        </div>
+      </label>
+      <div class="row">
+        <button id="testBtn">Test microphone / system audio</button>
+      </div>
+      <div id="testResult" class="note"></div>
+    </section>
+  </main>
+
+  <script src="stt.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

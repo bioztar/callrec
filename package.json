@@ -1,0 +1,36 @@
+{
+  "name": "callrec",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mac meeting recorder: system audio + mic, live transcript, folder per meeting.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "build:stt": "bash native/stt/build.sh",
+    "dist": "bash native/stt/build.sh && electron-builder --mac"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.pro7ocol.callrec",
+    "productName": "callrec",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "preload.js", "src/**/*", "package.json"],
+    "extraResources": [
+      { "from": "native/stt/.build/release/callrec-stt", "to": "native/stt/callrec-stt" }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "target": [{ "target": "dmg" }, { "target": "dir" }],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "callrec records your microphone so your side of the meeting is transcribed and saved.",
+        "NSAudioCaptureUsageDescription": "callrec records system audio so the other side of the meeting is transcribed and saved.",
+        "NSSpeechRecognitionUsageDescription": "callrec transcribes meeting audio on this Mac."
+      }
+    }
+  }
+}
