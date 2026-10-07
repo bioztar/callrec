@@ -40,6 +40,9 @@ final class AnalyzerEngine: STTEngine {
 
     /// Finalized text accumulated since the last emitted `final`.
     private var finalBuffer = ""
+    /// Results already produced for the utterance AFTER the one being flushed.
+    private var nextFinal = ""
+    private var nextVolatile = ""
     /// Volatile text after the last finalized segment, for the partial line.
     private var volatileText = ""
     /// Set on `endUtterance`: the sample time we asked the analyzer to finalize
@@ -148,18 +151,23 @@ final class AnalyzerEngine: STTEngine {
         // utterance boundaries are applied on the way out, in `endUtterance`.
     }
 
-    func append(_ buffer: AVAudioPCMBuffer, at time: Double) {
+    func append(_ buffer: AVAudioPCMBuffer, at time: Double) { append(buffer, at: time, isPad: false) }
+
+    /// `isPad`: synthetic trailing silence. It is never clipped and does not move
+    /// `lastEnd`, so real speech that starts inside the pad window is not trimmed.
+    private func append(_ buffer: AVAudioPCMBuffer, at time: Double, isPad: Bool) {
         lock.lock()
         clockSeconds = time + Double(buffer.frameLength) / inputFormat.sampleRate
         lock.unlock()
 
-        // SpeechAnalyzer rejects input whose timestamp overlaps or precedes prior
-        // input (SFSpeechErrorDomain 2). The VAD pre-roll is back-dated and can
-        // reach before the previous utterance's tail, so clip against lastEnd.
+        // Real audio is clipped against the end of the last REAL audio: the VAD
+        // pre-roll is back-dated and can replay the previous utterance's tail.
         lock.lock()
-        let clip = MonotonicClip.clip(start: time, frames: Int(buffer.frameLength),
-                                      lastEnd: lastEnd, rate: inputFormat.sampleRate)
-        if let clip { lastEnd = clip.newLastEnd }
+        let clip: MonotonicClip.Result? = isPad
+            ? MonotonicClip.Result(start: time, dropFrames: 0, newLastEnd: lastEnd)
+            : MonotonicClip.clip(start: time, frames: Int(buffer.frameLength),
+                                 lastEnd: lastEnd, rate: inputFormat.sampleRate)
+        if let clip, !isPad { lastEnd = clip.newLastEnd }
         lock.unlock()
         guard let clip else { return }
 
@@ -207,12 +215,19 @@ final class AnalyzerEngine: STTEngine {
         lock.unlock()
         let padFrames = Int(Self.padSeconds * inputFormat.sampleRate)
         if let pad = Coordinator.makeBuffer(samples: [Int16](repeating: 0, count: padFrames), format: inputFormat) {
-            append(pad, at: padStart)
+            append(pad, at: padStart, isPad: true)
         }
 
         lock.lock()
         let through = CMTime(value: analyzerLastEndSamples, timescale: CMTimeScale(analyzerFormat.sampleRate))
         if debugResults { out.log("endUtterance through=\(through.seconds) (input clock \(clockSeconds))") }
+        if pendingFlushThrough != nil {
+            // Previous utterance not flushed yet: the parked text is part of this one now.
+            if !nextFinal.isEmpty { finalBuffer = finalBuffer.isEmpty ? nextFinal : finalBuffer + " " + nextFinal }
+            volatileText = nextVolatile
+            nextFinal = ""
+            nextVolatile = ""
+        }
         pendingFlushThrough = through
         finalizeReturned = false
         lock.unlock()
@@ -297,6 +312,20 @@ final class AnalyzerEngine: STTEngine {
         }
 
         lock.lock()
+        // Contiguous timeline: a result starting at/after the pending utterance's
+        // `through` belongs to the NEXT utterance. Park it so it is neither merged
+        // into this flush nor emitted twice.
+        if let through = pendingFlushThrough, result.range.start.seconds >= through.seconds - 0.05 {
+            if result.isFinal {
+                let piece = text.trimmingCharacters(in: .whitespaces)
+                if !piece.isEmpty { nextFinal = nextFinal.isEmpty ? piece : nextFinal + " " + piece }
+                nextVolatile = ""
+            } else {
+                nextVolatile = text
+            }
+            lock.unlock()
+            return
+        }
         if result.isFinal {
             appendFinalized(text)
             volatileText = ""
@@ -339,8 +368,11 @@ final class AnalyzerEngine: STTEngine {
         guard pendingFlushThrough != nil || force else { lock.unlock(); return }
         pendingFlushThrough = nil
         let text = (finalBuffer + " " + volatileText).trimmingCharacters(in: .whitespaces)
-        finalBuffer = ""
-        volatileText = ""
+        // Whatever the next utterance already produced becomes the new buffer.
+        finalBuffer = nextFinal
+        volatileText = nextVolatile
+        nextFinal = ""
+        nextVolatile = ""
         lock.unlock()
 
         if force && text.isEmpty { return }

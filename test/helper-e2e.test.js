@@ -78,8 +78,10 @@ function runHelper(pcm) {
 
 const skip = ready();
 
-test('every sentence keeps its last word through the native helper', { skip: skip || false, timeout: 120000 }, async () => {
-  const silence = Buffer.alloc(RATE * 2 * 1.3);
+// 1.3 s = normal pauses; 0.5 s = fast turn-taking (next phrase starts before the
+// previous one has been flushed — must neither merge nor duplicate text).
+for (const gapSec of [1.3, 0.5]) test(`every sentence keeps its last word through the native helper (gap ${gapSec}s)`, { skip: skip || false, timeout: 120000 }, async () => {
+  const silence = Buffer.alloc(Math.round(RATE * 2 * gapSec / 2) * 2);
   const parts = [silence];
   SENTENCES.forEach(([text]) => parts.push(speechPcm(text), silence));
   const { finals, errors } = await runHelper(Buffer.concat(parts));
@@ -88,6 +90,7 @@ test('every sentence keeps its last word through the native helper', { skip: ski
   const joined = norm(finals.join(' | '));
   // Each final must END with its sentence's last word, in order.
   SENTENCES.forEach(([, last]) => assert.ok(joined.includes(last), `last word "${last}" missing from: ${joined}`));
+  assert.equal(finals.length, SENTENCES.length, `expected one final per sentence, got ${finals.length}`);
   const ends = finals.map((f) => norm(f).split(' ').pop());
   SENTENCES.forEach(([, last]) => assert.ok(ends.includes(last), `no final ends with "${last}"; endings: ${ends.join(', ')}`));
 });
