@@ -157,7 +157,8 @@ const STT = (() => {
         case 'final':
           clearTimeout(this._deafTimer); this._warnedDeaf = false;
           this.onPartial('');
-          if (msg.text && msg.text.trim()) this.onFinal(msg.text.trim());
+          // Drop punctuation-only finals (e.g. ", .." when the locale can't hear the language).
+          if (msg.text && /[\p{L}\p{N}]/u.test(msg.text)) this.onFinal(msg.text.trim());
           if (this.readyState === 3) this._dispose();
           break;
         case 'error':
