@@ -76,8 +76,9 @@ function wireDisplayMedia() {
   session.defaultSession.setDisplayMediaRequestHandler(
     (request, callback) => {
       desktopCapturer.getSources({ types: ['screen'] })
-        .then((sources) => callback({ video: sources[0], audio: 'loopback' }))
-        .catch(() => callback({}));
+        // No screen source = no Screen Recording permission (or locked display): deny cleanly.
+        .then((sources) => (sources[0] ? { video: sources[0], audio: 'loopback' } : {}), () => ({}))
+        .then((grant) => callback(grant)); // exactly one callback call (a second throws)
     },
     { useSystemPicker: false },
   );
@@ -149,12 +150,24 @@ function wireIpc() {
     else if (PANES[pane]) shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${PANES[pane]}`);
   });
 
+  // Dev-only UI test: pretend the model is missing until a simulated download finishes.
+  const fakeMissing = !app.isPackaged && process.env.CALLREC_FAKE_MODEL_MISSING === '1';
+  let fakeInstalled = false;
   ipcMain.handle('model:status', (_e, language) => {
     const { locale } = nativeLocale(language, app.getLocale());
+    if (fakeMissing && !fakeInstalled) return { locale, analyzer: 'supported', sf: false, ready: false };
     return nativeStt.modelStatus(locale);
   });
-  ipcMain.handle('model:download', (_e, language) => {
+  ipcMain.handle('model:download', async (_e, language) => {
     const { locale } = nativeLocale(language, app.getLocale());
+    if (fakeMissing && !fakeInstalled) {
+      for (let i = 1; i <= 20; i += 1) {
+        await new Promise((r) => setTimeout(r, 400));
+        if (win && !win.isDestroyed()) win.webContents.send('model:progress', { locale, fraction: i / 20 });
+      }
+      fakeInstalled = true;
+      return { ok: true };
+    }
     return nativeStt.downloadModel(locale, (fraction) => {
       if (win && !win.isDestroyed()) win.webContents.send('model:progress', { locale, fraction });
     });

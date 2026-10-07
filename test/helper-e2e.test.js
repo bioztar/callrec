@@ -93,4 +93,10 @@ for (const gapSec of [1.3, 0.5]) test(`every sentence keeps its last word throug
   assert.equal(finals.length, SENTENCES.length, `expected one final per sentence, got ${finals.length}`);
   const ends = finals.map((f) => norm(f).split(' ').pop());
   SENTENCES.forEach(([, last]) => assert.ok(ends.includes(last), `no final ends with "${last}"; endings: ${ends.join(', ')}`));
+  // ...and START with its first word ("El cliente" must not become "cliente").
+  const starts = finals.map((f) => norm(f).split(' ')[0]);
+  SENTENCES.forEach(([text]) => {
+    const first = norm(text).split(' ')[0];
+    assert.ok(starts.includes(first), `no final starts with "${first}"; starts: ${starts.join(', ')}`);
+  });
 });

@@ -25,22 +25,17 @@ function mmss(sec) {
 }
 
 // ---- echo suppression: drop ME lines that re-heard THEM through the speakers ----
-const recentThem = [];
-const norm = (s) => s.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, '').replace(/\s+/g, ' ').trim();
-function overlap(a, b) {
-  const A = new Set(a.split(' ').filter(Boolean));
-  const B = new Set(b.split(' ').filter(Boolean));
-  if (!A.size || !B.size) return 0;
-  let inter = 0; A.forEach((w) => { if (B.has(w)) inter += 1; });
-  return inter / Math.min(A.size, B.size);
+// Me finals are held ECHO_HOLD_MS before commit: the mic usually hears the line
+// before the system-audio recognizer finishes it, so Them may not be known yet.
+const ECHO_HOLD_MS = 3500;
+const echoState = { thems: [], held: [] };
+function releaseMe(item) {
+  if (!echoState.held.includes(item)) return;
+  echoState.held = echoState.held.filter((h) => h !== item);
+  clearTimeout(item.timer);
+  if (!Echo.isEcho(item.seg, echoState.thems)) item.commit();
 }
-function isEchoOfThem(text) {
-  const n = norm(text);
-  if (!n) return false;
-  const now = Date.now();
-  while (recentThem.length && now - recentThem[0].t > 8000) recentThem.shift();
-  return recentThem.some((r) => n === r.norm || r.norm.includes(n) || n.includes(r.norm) || overlap(n, r.norm) > 0.6);
-}
+function releaseAllMe() { [...echoState.held].forEach(releaseMe); }
 
 // ---- transcript pane ----
 const partialEls = {};
@@ -72,7 +67,9 @@ async function acquireStreams() {
   const sys = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
   sys.getVideoTracks().forEach((t) => t.stop());
   if (!sys.getAudioTracks().length) throw new Error('no system audio track (Screen & System Audio Recording permission?)');
-  const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const mic = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
   return { sys, mic };
 }
 
@@ -161,7 +158,7 @@ async function start() {
 
   els.transcript.textContent = '';
   els.openBtn.hidden = true;
-  recentThem.length = 0;
+  echoState.thems = []; echoState.held = [];
   const t0 = performance.now();
   const now = () => (performance.now() - t0) / 1000;
   const ctx = new AudioContext();
@@ -176,13 +173,14 @@ async function start() {
       renderPartial(speaker, text);
     },
     onFinal: (text) => {
-      if (speaker === 'THEM') recentThem.push({ norm: norm(text), t: Date.now() });
-      else if (isEchoOfThem(text)) { delete utt[speaker]; return; }
       const end = now();
       const startSec = Math.min(utt[speaker] ?? Math.max(0, end - 1), end);
       delete utt[speaker];
-      api.segment({ speaker, start: startSec, end, text });
-      renderFinal(speaker, text, startSec);
+      const commit = () => { api.segment({ speaker, start: startSec, end, text }); renderFinal(speaker, text, startSec); };
+      if (speaker === 'THEM') { echoState.thems.push({ start: startSec, end, text }); commit(); return; }
+      const item = { seg: { start: startSec, end, text }, commit };
+      item.timer = setTimeout(() => releaseMe(item), ECHO_HOLD_MS);
+      echoState.held.push(item);
     },
   });
   const connect = (stream, speaker) => (engine === 'deepgram'
@@ -220,6 +218,7 @@ async function stop() {
   await new Promise((resolve) => { s.recorder.onstop = resolve; try { s.recorder.stop(); } catch { resolve(); } });
   await Promise.all(s.writes);
   await Promise.all(s.sockets.map((k) => k.drain()));
+  releaseAllMe(); // commit/drop held Me finals before the session closes
   s.meters.forEach((m) => { m.stopped = true; });
   s.streams.sys.getTracks().forEach((t) => t.stop());
   s.streams.mic.getTracks().forEach((t) => t.stop());
@@ -256,7 +255,7 @@ function refreshLangNote() {
   const mixedNative = els.engine.value === 'native' && els.language.value === 'mixed';
   els.langNote.hidden = !mixedNative;
   els.langNote.textContent = mixedNative
-    ? `Native engine can't mix languages: it will hear your system locale (${navigator.language}) only. Pick Deepgram for true English + Spanish.`
+    ? 'Native engine hears Spanish (es-ES) only — English words may be garbled. For true Spanish/English code-switching pick Deepgram (multi).'
     : '';
 }
 
@@ -309,17 +308,25 @@ async function refreshPermissions() {
     const p = Math.round((fraction || 0) * 100);
     modelEls.bar.style.width = `${p}%`;
     modelEls.pct.textContent = `${p}%`;
+    $('modelState').textContent = `Downloading Spanish model… ${p}%`;
   });
   modelEls.btn.addEventListener('click', downloadModel);
   modelEls.dict.addEventListener('click', () => api.openPane('keyboard'));
   $('setModelBtn').addEventListener('click', async () => {
     model.language = 'es';
-    if (!(await checkModel('es')) && !modelEls.btn.hidden) downloadModel();
+    if (!(await checkModel('es')) && !modelEls.btn.hidden) {
+      modelEls.card.scrollIntoView({ block: 'start' }); // progress bar lives in the card
+      downloadModel();
+    }
   });
   if (els.engine.value === 'native') checkModel(els.language.value);
   api.on('toggle-recording', toggle);
-  api.on('open-settings', () => { els.settings.hidden = false; });
-  $('settingsBtn').addEventListener('click', () => { els.settings.hidden = !els.settings.hidden; });
+  const showSettings = (open) => {
+    els.settings.hidden = !open;
+    if (open) { els.settings.scrollIntoView({ block: 'start' }); checkModel('es'); }
+  };
+  api.on('open-settings', () => showSettings(true));
+  $('settingsBtn').addEventListener('click', () => showSettings(els.settings.hidden));
 
   $('permMic').addEventListener('click', async () => { await api.askMic(); refreshPermissions(); });
   $('permMicPane').addEventListener('click', () => api.openPane('microphone'));

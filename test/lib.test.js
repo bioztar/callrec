@@ -113,7 +113,7 @@ test('language mapping', () => {
   assert.equal(deepgramLanguage('es'), 'es');
   assert.equal(nativeLocale('en').locale, 'en-US');
   assert.equal(nativeLocale('es').locale, 'es-ES');
-  assert.equal(nativeLocale('mixed', 'en-GB').locale, 'en-GB');
-  assert.match(nativeLocale('mixed', 'en-GB').note, /en-GB only/);
-  assert.equal(nativeLocale('mixed', 'garbage!').locale, 'en-US');
+  assert.equal(nativeLocale('mixed').locale, 'es-ES');
+  assert.match(nativeLocale('mixed').note, /Deepgram \(multi\)/);
+  assert.equal(nativeLocale('es').note, '');
 });

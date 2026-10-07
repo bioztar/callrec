@@ -28,7 +28,8 @@ class SessionWriter {
   /// seg: { start, end, speaker: 'ME'|'THEM', text } — seconds since start.
   addSegment(seg) {
     if (!seg || !seg.text || !seg.text.trim()) return;
-    this.segments = [...this.segments, { ...seg, text: seg.text.trim() }];
+    // Stable sort by start: held Me finals (echo check) can arrive late.
+    this.segments = [...this.segments, { ...seg, text: seg.text.trim() }].sort((a, b) => a.start - b.start);
     this.meta = { ...this.meta, durationSec: Math.max(this.meta.durationSec, seg.end) };
     this._flush();
   }

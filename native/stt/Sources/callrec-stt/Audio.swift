@@ -149,7 +149,7 @@ final class Coordinator {
     /// first phoneme of every sentence is clipped, which reads as an accuracy
     /// problem but is really a framing one.
     private var preroll: [[Int16]] = []
-    private static let prerollFrames = 15    // 300 ms
+    private static let prerollFrames = 30    // 600 ms (300 ms still clipped soft Spanish onsets like "El")
 
     private var utteranceOpen = false
     private var pending: [Int16] = []
