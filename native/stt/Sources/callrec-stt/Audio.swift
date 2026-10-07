@@ -262,6 +262,17 @@ final class Coordinator {
         }
     }
 
+    /// Copy of `buffer` without its first `count` frames (nil if nothing is left).
+    static func trimmed(_ buffer: AVAudioPCMBuffer, dropping count: Int) -> AVAudioPCMBuffer? {
+        let keep = Int(buffer.frameLength) - count
+        guard keep > 0, let src = buffer.int16ChannelData,
+              let out = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: AVAudioFrameCount(keep)),
+              let dst = out.int16ChannelData else { return nil }
+        out.frameLength = AVAudioFrameCount(keep)
+        dst[0].update(from: src[0] + count, count: keep)
+        return out
+    }
+
     static func makeBuffer(samples: [Int16], format: AVAudioFormat) -> AVAudioPCMBuffer? {
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)),
               let channel = buffer.int16ChannelData else { return nil }

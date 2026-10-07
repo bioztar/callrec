@@ -63,6 +63,12 @@ if args.contains("--locales") {
     exit(0)
 }
 
+if args.contains("--check-monotonic") { MonotonicClip.selfCheck() }
+
+if args.contains("--model-status") || args.contains("--download-model") {
+    runModelMode(args: args)
+}
+
 // MARK: - config
 
 let selftest = args.contains("--selftest")

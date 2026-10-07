@@ -94,12 +94,55 @@ function makeMeter(ctx, stream, el) {
   return meter;
 }
 
+// ---- on-device model card (download with progress / Dictation instructions) ----
+const model = { language: null, busy: false };
+const modelEls = {
+  card: $('modelCard'), title: $('modelTitle'), text: $('modelText'), btn: $('modelDownload'),
+  dict: $('modelDictation'), barWrap: $('modelBarWrap'), bar: $('modelBar'), pct: $('modelPct'),
+};
+
+/// Shows the card when the native engine has no usable on-device model for the
+/// selected language. Returns true when the model is ready.
+async function checkModel(language) {
+  const st = await api.modelStatus(language);
+  if (st.error) { setStatus(st.error, 'error'); return false; }
+  $('modelState').textContent = `On-device model ${st.locale}: ${st.ready ? 'ready' : 'missing'} (engine: ${st.analyzer}, dictation: ${st.sf ? 'yes' : 'no'})`;
+  if (st.ready) { modelEls.card.hidden = true; return true; }
+  model.language = language;
+  const canDownload = st.analyzer === 'supported' || st.analyzer === 'downloading';
+  modelEls.title.textContent = `On-device speech model for ${st.locale} is not installed`;
+  modelEls.text.textContent = canDownload
+    ? 'One-time download of Apple\'s on-device model (a few hundred MB). Audio never leaves this Mac — callrec will not fall back to server recognition.'
+    : 'This Mac cannot fetch the model from here. Add the language in System Settings › Keyboard › Dictation › Languages (wait for the download), then press Start again. callrec will not fall back to server recognition.';
+  modelEls.btn.hidden = !canDownload;
+  modelEls.dict.hidden = canDownload;
+  modelEls.card.hidden = false;
+  return false;
+}
+
+async function downloadModel() {
+  if (model.busy) return;
+  model.busy = true;
+  modelEls.btn.disabled = true;
+  modelEls.barWrap.hidden = false;
+  modelEls.bar.style.width = '0';
+  const res = await api.modelDownload(model.language || els.language.value);
+  model.busy = false;
+  modelEls.btn.disabled = false;
+  modelEls.barWrap.hidden = true;
+  modelEls.pct.textContent = '';
+  if (res.error) { modelEls.text.textContent = `Download failed: ${res.error}`; return; }
+  setStatus('Speech model installed. Ready.', 'idle');
+  checkModel(els.language.value);
+}
+
 // ---- recording ----
 async function start() {
   const engine = els.engine.value;
   const language = els.language.value;
   if (engine === 'deepgram' && !settings.hasDeepgramKey) { setStatus('Add your Deepgram key in Settings', 'error'); return; }
   if (engine === 'native' && !settings.nativeAvailable) { setStatus('Native helper not built — run native/stt/build.sh, or pick Deepgram', 'error'); return; }
+  if (engine === 'native' && !(await checkModel(language))) { setStatus('Speech model missing — see the card above', 'error'); return; }
 
   els.toggle.disabled = true;
   setStatus('Requesting audio…', 'live');
@@ -127,7 +170,7 @@ async function start() {
   const utt = {}; // per speaker: start second of the in-progress utterance
   const handlers = (speaker) => ({
     label: LABEL[speaker],
-    onStatus: (m) => setStatus(m, 'error'),
+    onStatus: (m) => { console.error(`[stt] ${m}`); setStatus(m, 'error'); },
     onPartial: (text) => {
       if (text && utt[speaker] === undefined) utt[speaker] = now();
       renderPartial(speaker, text);
@@ -190,7 +233,23 @@ async function stop() {
   setStatus(`Saved ${mmss(duration)} → ${lastDir}`, 'idle');
 }
 
-const toggle = () => (session ? stop() : start());
+let starting = false;
+async function toggle() {
+  if (starting) return; // a start is already in flight (double hotkey / autorun race)
+  try {
+    if (session) { await stop(); return; }
+    starting = true;
+    console.error('[callrec] start requested');
+    await start();
+    console.error(`[callrec] start ${session ? 'ok' : 'did not begin'}`);
+  } catch (err) {
+    console.error(`[callrec] toggle failed: ${err && err.stack}`);
+    setStatus(`Failed: ${err && err.message}`, 'error');
+    els.toggle.disabled = false;
+  } finally {
+    starting = false;
+  }
+}
 
 // ---- settings panel ----
 function refreshLangNote() {
@@ -243,8 +302,21 @@ async function refreshPermissions() {
 
   els.toggle.addEventListener('click', toggle);
   els.openBtn.addEventListener('click', () => lastDir && api.openFolder(lastDir));
-  els.engine.addEventListener('change', refreshLangNote);
-  els.language.addEventListener('change', refreshLangNote);
+  const onPick = () => { refreshLangNote(); if (els.engine.value === 'native') checkModel(els.language.value); else modelEls.card.hidden = true; };
+  els.engine.addEventListener('change', onPick);
+  els.language.addEventListener('change', onPick);
+  api.on('model:progress', ({ fraction }) => {
+    const p = Math.round((fraction || 0) * 100);
+    modelEls.bar.style.width = `${p}%`;
+    modelEls.pct.textContent = `${p}%`;
+  });
+  modelEls.btn.addEventListener('click', downloadModel);
+  modelEls.dict.addEventListener('click', () => api.openPane('keyboard'));
+  $('setModelBtn').addEventListener('click', async () => {
+    model.language = 'es';
+    if (!(await checkModel('es')) && !modelEls.btn.hidden) downloadModel();
+  });
+  if (els.engine.value === 'native') checkModel(els.language.value);
   api.on('toggle-recording', toggle);
   api.on('open-settings', () => { els.settings.hidden = false; });
   $('settingsBtn').addEventListener('click', () => { els.settings.hidden = !els.settings.hidden; });

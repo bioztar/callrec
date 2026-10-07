@@ -90,6 +90,7 @@ test('settings persist, key encrypted at rest and never returned by get()', () =
   };
   const s = createSettings({ file, crypto });
   assert.equal(s.get().engine, 'native');
+  assert.equal(s.get().language, 'es');
   s.set({ engine: 'deepgram', outputRoot: '/x', hasDeepgramKey: true, deepgramKeyEnc: 'evil' });
   s.setDeepgramKey('FAKE-TEST-KEY');
   const again = createSettings({ file, crypto });

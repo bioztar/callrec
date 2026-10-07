@@ -26,6 +26,17 @@
       </div>
     </section>
 
+    <section id="modelCard" class="card warn" hidden>
+      <strong id="modelTitle">On-device speech model missing</strong>
+      <p id="modelText"></p>
+      <div class="row">
+        <button id="modelDownload">Download speech model</button>
+        <button id="modelDictation" class="ghost" hidden>Open Keyboard settings</button>
+        <div class="bar grow" id="modelBarWrap" hidden><i id="modelBar"></i></div>
+        <span id="modelPct" class="note"></span>
+      </div>
+    </section>
+
     <section class="card">
       <div class="row">
         <input id="title" type="text" placeholder="Meeting title (optional)" autocomplete="off">
@@ -39,9 +50,9 @@
         </label>
         <label>Language
           <select id="language">
-            <option value="mixed">English + Spanish (mixed)</option>
-            <option value="en">English</option>
             <option value="es">Spanish</option>
+            <option value="en">English</option>
+            <option value="mixed">English + Spanish (mixed)</option>
           </select>
         </label>
       </div>
@@ -80,9 +91,9 @@
         </label>
         <label>Default language
           <select id="setLanguage">
-            <option value="mixed">English + Spanish (mixed)</option>
-            <option value="en">English</option>
             <option value="es">Spanish</option>
+            <option value="en">English</option>
+            <option value="mixed">English + Spanish (mixed)</option>
           </select>
         </label>
       </div>
@@ -101,7 +112,9 @@
       </label>
       <div class="row">
         <button id="testBtn">Test microphone / system audio</button>
+        <button id="setModelBtn">Download Spanish speech model</button>
       </div>
+      <div id="modelState" class="note"></div>
       <div id="testResult" class="note"></div>
     </section>
   </main>

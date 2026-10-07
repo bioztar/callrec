@@ -41,6 +41,8 @@ button:disabled { opacity: .5; cursor: default; }
 .bar { flex: 1; height: 8px; background: #11141a; border-radius: 4px; overflow: hidden; }
 .bar i { display: block; height: 100%; width: 0; background: var(--me); transition: width .08s linear; }
 #meterThem { background: var(--them); }
+.grow { flex: 1; min-width: 120px; }
+#modelBar { background: var(--accent); }
 .transcript-card { flex: 1; min-height: 160px; display: flex; }
 .transcript { flex: 1; overflow-y: auto; user-select: text; }
 .transcript div { margin: 0 0 6px; }

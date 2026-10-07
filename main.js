@@ -145,10 +145,22 @@ function wireIpc() {
   }));
   ipcMain.handle('perm:askMic', () => systemPreferences.askForMediaAccess('microphone'));
   ipcMain.handle('perm:open', (_e, pane) => {
-    if (PANES[pane]) shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${PANES[pane]}`);
+    if (pane === 'keyboard') shell.openExternal('x-apple.systempreferences:com.apple.Keyboard-Settings.extension');
+    else if (PANES[pane]) shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${PANES[pane]}`);
   });
 
-  ipcMain.handle('session:start', (_e, { title, engine, language }) => {
+  ipcMain.handle('model:status', (_e, language) => {
+    const { locale } = nativeLocale(language, app.getLocale());
+    return nativeStt.modelStatus(locale);
+  });
+  ipcMain.handle('model:download', (_e, language) => {
+    const { locale } = nativeLocale(language, app.getLocale());
+    return nativeStt.downloadModel(locale, (fraction) => {
+      if (win && !win.isDestroyed()) win.webContents.send('model:progress', { locale, fraction });
+    });
+  });
+
+  ipcMain.handle('session:start', async (_e, { title, engine, language }) => {
     if (writer) return { error: 'A recording is already running' };
     if (!LANGUAGES[language]) return { error: `Unknown language "${language}"` };
     const s = currentSettings();
@@ -161,6 +173,11 @@ function wireIpc() {
     } else if (engine === 'native') {
       if (!s.nativeAvailable) return { error: nativeStt.NOT_BUILT };
       ({ locale, note } = nativeLocale(language, app.getLocale()));
+      // Never start without an on-device model: the helper would otherwise fail
+      // mid-session, and nothing may fall back to server recognition.
+      const model = await nativeStt.modelStatus(locale);
+      if (model.error) return { error: model.error };
+      if (!model.ready) return { error: `No on-device speech model for ${locale}.`, code: 'model-missing', locale, model };
     } else {
       return { error: `Unknown engine "${engine}"` };
     }

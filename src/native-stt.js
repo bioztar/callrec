@@ -187,7 +187,55 @@ function locales() {
   });
 }
 
+/// On-device model state for one locale: { locale, analyzer, sf, ready }.
+/// analyzer: installed | supported | downloading | unsupported | unavailable.
+/// ready = a model can run on-device right now (analyzer installed, or SF on-device).
+function modelStatus(locale) {
+  return new Promise((resolve) => {
+    const bin = helperPath();
+    if (!bin) { resolve({ error: NOT_BUILT }); return; }
+    execFile(bin, ['--model-status', '--locale', locale], { timeout: 30000 }, (err, stdout) => {
+      const line = String(stdout).split('\n').find((l) => l.trim().startsWith('{'));
+      if (err || !line) { resolve({ error: `native STT: model check failed (${err ? err.message : 'no output'})` }); return; }
+      try {
+        const s = JSON.parse(line);
+        resolve({ locale, analyzer: s.analyzer, sf: Boolean(s.sf), ready: s.analyzer === 'installed' || Boolean(s.sf) });
+      } catch (e) { resolve({ error: `native STT: unreadable model status (${e.message})` }); }
+    });
+  });
+}
+
+/// Downloads the analyzer model for `locale`; onProgress(fraction 0..1).
+/// Resolves { ok: true } or { error }.
+function downloadModel(locale, onProgress) {
+  return new Promise((resolve) => {
+    const bin = helperPath();
+    if (!bin) { resolve({ error: NOT_BUILT }); return; }
+    const child = spawn(bin, ['--download-model', '--locale', locale], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let buffer = '';
+    let failure = null;
+    let done = false;
+    child.stdout.on('data', (data) => {
+      buffer += data.toString('utf8');
+      let i = buffer.indexOf('\n');
+      while (i !== -1) {
+        const line = buffer.slice(0, i).trim();
+        buffer = buffer.slice(i + 1);
+        try {
+          const msg = JSON.parse(line);
+          if (msg.type === 'progress') onProgress(msg.fraction);
+          else if (msg.type === 'model-done') done = true;
+          else if (msg.type === 'error') failure = msg.message;
+        } catch { /* ignore non-JSON */ }
+        i = buffer.indexOf('\n');
+      }
+    });
+    child.on('error', (e) => resolve({ error: e.message }));
+    child.on('exit', (code) => resolve(done && code === 0 ? { ok: true } : { error: failure || `model download exited with code ${code}` }));
+  });
+}
+
 /// True when the helper binary is present. Cheap enough to call from a UI path.
 function isAvailable() { return helperPath() !== null; }
 
-module.exports = { start, chunk, stop, stopAll, locales, isAvailable, helperPath, NOT_BUILT };
+module.exports = { start, chunk, stop, stopAll, locales, modelStatus, downloadModel, isAvailable, helperPath, NOT_BUILT };

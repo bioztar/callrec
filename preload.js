@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('callrec', {
   permStatus: invoke('perm:status'),
   askMic: invoke('perm:askMic'),
   openPane: invoke('perm:open'),
+  modelStatus: invoke('model:status'),
+  modelDownload: invoke('model:download'),
   sessionStart: invoke('session:start'),
   sessionStop: invoke('session:stop'),
   recChunk: (bytes) => ipcRenderer.send('session:audio', bytes),
@@ -21,7 +23,7 @@ contextBridge.exposeInMainWorld('callrec', {
   sttChunk: (id, buf) => ipcRenderer.send('stt:chunk', id, buf),
   sttStop: (id) => ipcRenderer.send('stt:stop', id),
   on: (channel, fn) => {
-    const allowed = ['stt:event', 'toggle-recording', 'open-settings'];
+    const allowed = ['stt:event', 'toggle-recording', 'open-settings', 'model:progress'];
     if (allowed.includes(channel)) ipcRenderer.on(channel, (_e, ...args) => fn(...args));
   },
 });

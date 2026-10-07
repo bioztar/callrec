@@ -6,7 +6,7 @@ const path = require('path');
 const DEFAULTS = {
   outputRoot: '',
   engine: 'native',
-  language: 'mixed',
+  language: 'es',
   shortcut: 'CommandOrControl+Shift+R',
 };
 
