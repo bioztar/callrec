@@ -1,8 +1,10 @@
 name: Release
 
+# Tags build and publish; pull requests build the same artifacts without publishing.
 on:
   push:
     tags: ['v*']
+  pull_request:
 
 permissions:
   contents: write
@@ -17,6 +19,7 @@ jobs:
           node-version: 20
           cache: npm
       - name: Tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
       - run: npm ci
@@ -80,6 +83,7 @@ jobs:
           if-no-files-found: error
 
   release:
+    if: startsWith(github.ref, 'refs/tags/')
     needs: [windows, macos]
     runs-on: ubuntu-latest
     steps:
