@@ -8,7 +8,7 @@
 //   - with Whisper + a fake mic playing test/fixtures/spanish.wav, the transcript contains the expected words,
 //   - "Them" lines are reported (they need real system audio playing; --require-them makes them mandatory).
 //
-//   node scripts/smoke.js <path-to-app-exe> [--model file] [--seconds 25] [--require-them]
+//   node scripts/smoke.js <path-to-app-exe> [--model file] [--seconds 25] [--drain 600] [--require-them]
 
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -19,6 +19,7 @@ const args = process.argv.slice(2);
 const opt = (name, dflt) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : dflt; };
 const exe = args[0];
 const seconds = Number(opt('--seconds', '25'));
+const drainSec = Number(opt('--drain', '600')); // slow runners need minutes to finish the Whisper queue
 const model = opt('--model', path.join(__dirname, '..', 'vendor', 'models', 'ggml-small-q5_1.bin'));
 const requireThem = args.includes('--require-them');
 if (!exe || !fs.existsSync(exe)) { console.error(`usage: smoke.js <app exe>  (got ${exe})`); process.exit(2); }
@@ -37,6 +38,7 @@ fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ outputRo
 const env = {
   ...process.env,
   CALLREC_AUTORUN_SEC: String(seconds),
+  CALLREC_AUTORUN_DRAIN_SEC: String(drainSec),
   CALLREC_AUTORUN_REPORT: report,
   CALLREC_USER_DATA: userData,
   CALLREC_FAKE_MIC_WAV: path.resolve(__dirname, '..', 'test', 'fixtures', 'spanish.wav'),
@@ -47,7 +49,7 @@ const child = spawn(exe, [], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 let stdout = '';
 child.stdout.on('data', (d) => { stdout += d; process.stdout.write(d); });
 child.stderr.on('data', (d) => process.stderr.write(d));
-const killer = setTimeout(() => { console.error('smoke: timeout, killing app'); child.kill(); }, (seconds + 150) * 1000);
+const killer = setTimeout(() => { console.error('smoke: timeout, killing app'); child.kill(); }, (seconds + drainSec + 60) * 1000);
 
 child.on('exit', (code, signal) => {
   clearTimeout(killer);
