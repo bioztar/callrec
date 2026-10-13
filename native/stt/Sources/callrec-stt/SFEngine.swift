@@ -22,7 +22,7 @@ final class SFEngine: STTEngine {
     private let out: OutputWriter
     private let recognizer: SFSpeechRecognizer
     private let keyterms: [String]
-    private let queue = DispatchQueue(label: "com.pro7ocol.interg.stt.sf")
+    private let queue = DispatchQueue(label: "com.pro7ocol.callrec.stt.sf")
 
     /// Per-utterance state. Held by the result closure as well as by `current`,
     /// so a task that is still settling after the VAD has moved on can finish
@@ -116,9 +116,8 @@ final class SFEngine: STTEngine {
             // Backstop: if the task never reports `isFinal` (it has been seen to
             // go quiet after endAudio on a no-speech tail), publish the last
             // partial as the final. The contract with the renderer is exactly
-            // one final per utterance — `onInterviewerFinal` appends to the
-            // transcript and to `recentThem` on every final, so a missing one
-            // loses a line and a duplicate one doubles it.
+            // one final per utterance — the renderer appends one transcript line
+            // per final, so a missing one loses a line and a duplicate one doubles it.
             let timer = DispatchSource.makeTimerSource(queue: queue)
             timer.schedule(deadline: .now() + 2.0)
             timer.setEventHandler { [weak self] in

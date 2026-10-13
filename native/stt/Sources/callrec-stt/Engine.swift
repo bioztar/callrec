@@ -5,8 +5,7 @@ import Speech
 // The seam between the engine-agnostic half of this helper (stdin framing, VAD,
 // utterance coordination) and whichever Apple recognizer is actually running.
 //
-// Both engines are driven by exactly the same call sequence, which is what makes
-// the two paths comparable in the benchmark:
+// Both engines are driven by exactly the same call sequence, so they behave alike:
 //
 //   start()                       once, after authorization
 //   beginUtterance()              VAD opened an utterance
@@ -100,7 +99,7 @@ func makeEngine(config: HelperConfig, inputFormat: AVAudioFormat, out: OutputWri
     default: wantAnalyzer = true // "auto"
     }
 
-    #if !INTERG_NO_ANALYZER
+    #if !CALLREC_NO_ANALYZER
     if wantAnalyzer {
         if #available(macOS 26.0, *) {
             do {

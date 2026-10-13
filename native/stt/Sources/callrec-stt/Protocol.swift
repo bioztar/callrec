@@ -1,7 +1,7 @@
 import Foundation
 
-// The wire protocol between this helper and InterG's main process.
-// Full description: docs/native-stt-design.md §3.
+// The wire protocol between this helper and callrec's main process
+// (src/native-stt.js).
 
 // MARK: - Config (stdin header)
 
@@ -11,17 +11,17 @@ import Foundation
 /// Swift's synthesised `Decodable` would *reject* a missing key even when the
 /// property has a default value, so `init(from:)` is written out by hand.
 struct HelperConfig {
-    /// 'THEM' (interviewer, system-audio loopback) or 'ME' (microphone).
+    /// 'THEM' (the other side, system-audio loopback) or 'ME' (microphone).
     /// Used only to label diagnostics; the audio is identical either way.
     var speaker: String = "THEM"
     /// BCP-47 identifier, e.g. "en-US". One locale per helper — neither native
-    /// API has a multilingual mode (design doc §7).
+    /// API has a multilingual mode.
     var locale: String = "en-US"
     /// Vocabulary hints. Arrives on stdin, never on argv, because these are
     /// personal proper nouns and argv is readable through `ps`.
     var keyterms: [String] = []
     /// Contiguous silence that closes an utterance. 300 ms matches Deepgram's
-    /// `endpointing=300` so the benchmark compares transcription, not policy.
+    /// `endpointing=300` so both engines split utterances alike.
     var endpointSilenceMs: Int = 300
     /// Backstop against the documented one-minute limit on SFSpeechRecognizer
     /// audio duration. Well under 60 s on purpose.
@@ -70,7 +70,7 @@ extension HelperConfig: Decodable {
 /// asset-download notice — goes to stderr, which the main process collects but
 /// never parses.
 final class OutputWriter {
-    private let queue = DispatchQueue(label: "com.pro7ocol.interg.stt.out")
+    private let queue = DispatchQueue(label: "com.pro7ocol.callrec.stt.out")
     private let stdoutHandle = FileHandle.standardOutput
     private let stderrHandle = FileHandle.standardError
 
