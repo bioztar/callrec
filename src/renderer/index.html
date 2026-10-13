@@ -16,13 +16,16 @@
   <main>
     <section id="permCard" class="card warn" hidden>
       <strong>First-run permissions</strong>
-      <p>callrec needs <b>Microphone</b> (your side) and <b>Screen &amp; System Audio Recording</b> (the other side).
+      <p class="mac-only">callrec needs <b>Microphone</b> (your side) and <b>Screen &amp; System Audio Recording</b> (the other side).
          Native engine also asks for <b>Speech Recognition</b> on first use. After enabling Screen Recording, macOS may ask you to restart callrec.</p>
+      <p class="win-only">callrec needs the <b>Microphone</b> for your side. Turn on <b>Microphone access</b> and
+         <b>Let desktop apps access your microphone</b> in Windows Settings, then press Start again. The other side is
+         recorded from the speakers/headset output and needs no permission.</p>
       <div class="row">
-        <button id="permMic">Request microphone</button>
+        <button id="permMic" class="mac-only">Request microphone</button>
         <button id="permMicPane" class="ghost">Open Microphone settings</button>
-        <button id="permScreenPane" class="ghost">Open Screen &amp; System Audio settings</button>
-        <button id="permSpeechPane" class="ghost">Open Speech Recognition settings</button>
+        <button id="permScreenPane" class="ghost mac-only">Open Screen &amp; System Audio settings</button>
+        <button id="permSpeechPane" class="ghost mac-only">Open Speech Recognition settings</button>
       </div>
     </section>
 
@@ -32,9 +35,12 @@
       <div class="row">
         <button id="modelDownload">Download speech model</button>
         <button id="modelDictation" class="ghost" hidden>Open Keyboard settings</button>
+        <button id="modelChoose" class="ghost" hidden>Choose model file…</button>
+        <button id="modelOpenDir" class="ghost" hidden>Open models folder</button>
         <div class="bar grow" id="modelBarWrap" hidden><i id="modelBar"></i></div>
         <span id="modelPct" class="note"></span>
       </div>
+      <p id="modelPath" class="note" hidden></p>
     </section>
 
     <section class="card">
@@ -43,10 +49,7 @@
       </div>
       <div class="row">
         <label>Engine
-          <select id="engine">
-            <option value="native">Native Mac (on-device, free)</option>
-            <option value="deepgram">Deepgram (needs key)</option>
-          </select>
+          <select id="engine"></select>
         </label>
         <label>Language
           <select id="language">
@@ -76,9 +79,20 @@
 
     <section id="settings" class="card" hidden>
       <h2>Settings</h2>
-      <div class="row">
+      <div class="row" id="nativeModelRow">
         <button id="setModelBtn">Download Spanish speech model</button>
         <span id="modelState" class="note"></span>
+      </div>
+      <div id="whisperSettings" hidden>
+        <label>Whisper model
+          <div class="row">
+            <select id="setWhisperModel"></select>
+            <button id="setWhisperDownload">Download</button>
+            <button id="setWhisperChoose" class="ghost">Choose model file…</button>
+            <button id="setWhisperOpenDir" class="ghost">Open models folder</button>
+          </div>
+        </label>
+        <p id="whisperState" class="note"></p>
       </div>
       <label>Output folder
         <div class="row">
@@ -88,10 +102,7 @@
       </label>
       <div class="row">
         <label>Default engine
-          <select id="setEngine">
-            <option value="native">Native Mac (on-device)</option>
-            <option value="deepgram">Deepgram</option>
-          </select>
+          <select id="setEngine"></select>
         </label>
         <label>Default language
           <select id="setLanguage">
@@ -110,7 +121,7 @@
       </label>
       <label>Start/stop shortcut <span id="shortcutState" class="note"></span>
         <div class="row">
-          <input id="setShortcut" type="text" placeholder="CommandOrControl+Shift+R">
+          <input id="setShortcut" type="text" placeholder="Control+Alt+Shift+R">
           <button id="setShortcutSave">Apply</button>
         </div>
       </label>

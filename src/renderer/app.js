@@ -66,7 +66,12 @@ function renderFinal(speaker, text, startSec) {
 async function acquireStreams() {
   const sys = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
   sys.getVideoTracks().forEach((t) => t.stop());
-  if (!sys.getAudioTracks().length) throw new Error('no system audio track (Screen & System Audio Recording permission?)');
+  if (!sys.getAudioTracks().length) {
+    sys.getTracks().forEach((t) => t.stop());
+    throw new Error(settings.platform === 'darwin'
+      ? 'no system audio track (Screen & System Audio Recording permission?)'
+      : 'no system audio track (is an output device enabled?)');
+  }
   const mic = await navigator.mediaDevices.getUserMedia({
     audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
   });
@@ -92,11 +97,54 @@ function makeMeter(ctx, stream, el) {
 }
 
 // ---- on-device model card (download with progress / Dictation instructions) ----
-const model = { language: null, busy: false };
+const model = { language: null, engine: null, busy: false };
 const modelEls = {
   card: $('modelCard'), title: $('modelTitle'), text: $('modelText'), btn: $('modelDownload'),
   dict: $('modelDictation'), barWrap: $('modelBarWrap'), bar: $('modelBar'), pct: $('modelPct'),
+  choose: $('modelChoose'), openDir: $('modelOpenDir'), path: $('modelPath'),
 };
+const mb = (bytes) => `${Math.round(bytes / 1e6)} MB`;
+
+/// Whisper flavour of the model card: download on first use, or a file placed by hand.
+async function checkWhisper() {
+  const st = await api.whisperStatus();
+  $('whisperState').textContent = st.ready
+    ? `Using ${st.name} — ${st.path}`
+    : `No model yet. Download it, or copy ${st.expected} into ${st.dir}`;
+  $('setWhisperModel').value = st.id;
+  if (st.ready) { if (model.engine === 'whisper') modelEls.card.hidden = true; return true; }
+  model.engine = 'whisper';
+  modelEls.title.textContent = 'Whisper speech model is not installed';
+  modelEls.text.textContent = `One-time download of ${st.expected} (${mb(st.bytes)}) from huggingface.co. `
+    + 'Audio never leaves this computer. If the download is blocked (company proxy), fetch the file on another '
+    + 'network and use "Choose model file…", or copy it into the models folder.';
+  modelEls.path.textContent = `Models folder: ${st.dir}  ·  file: ${st.url}`;
+  modelEls.btn.textContent = `Download ${st.expected}`;
+  modelEls.btn.hidden = false;
+  modelEls.dict.hidden = true;
+  modelEls.choose.hidden = false;
+  modelEls.openDir.hidden = false;
+  modelEls.path.hidden = false;
+  modelEls.card.hidden = false;
+  return false;
+}
+
+async function chooseWhisperFile() {
+  const res = await api.whisperChoose();
+  if (res.canceled) return;
+  if (res.error) { modelEls.text.textContent = res.error; $('whisperState').textContent = res.error; return; }
+  setStatus(`Whisper model ${res.name} installed. Ready.`, 'idle');
+  modelEls.card.hidden = true;
+  checkWhisper();
+}
+
+/// Model check for whichever on-device engine is picked; true when ready.
+function checkEngineModel(engine, language) {
+  if (engine === 'whisper') return checkWhisper();
+  if (engine === 'native') { model.engine = 'native'; return checkModel(language); }
+  modelEls.card.hidden = true;
+  return Promise.resolve(true);
+}
 
 /// Shows the card when the native engine has no usable on-device model for the
 /// selected language. Returns true when the model is ready.
@@ -106,6 +154,8 @@ async function checkModel(language) {
   $('modelState').textContent = `On-device model ${st.locale}: ${st.ready ? 'ready' : 'missing'} (engine: ${st.analyzer}, dictation: ${st.sf ? 'yes' : 'no'})`;
   if (st.ready) { modelEls.card.hidden = true; return true; }
   model.language = language;
+  [modelEls.choose, modelEls.openDir, modelEls.path].forEach((e) => { e.hidden = true; });
+  modelEls.btn.textContent = 'Download speech model';
   const canDownload = st.analyzer === 'supported' || st.analyzer === 'downloading';
   modelEls.title.textContent = `On-device speech model for ${st.locale} is not installed`;
   modelEls.text.textContent = canDownload
@@ -123,14 +173,15 @@ async function downloadModel() {
   modelEls.btn.disabled = true;
   modelEls.barWrap.hidden = false;
   modelEls.bar.style.width = '0';
-  const res = await api.modelDownload(model.language || els.language.value);
+  const whisper = model.engine === 'whisper';
+  const res = whisper ? await api.whisperDownload($('setWhisperModel').value) : await api.modelDownload(model.language || els.language.value);
   model.busy = false;
   modelEls.btn.disabled = false;
   modelEls.barWrap.hidden = true;
   modelEls.pct.textContent = '';
-  if (res.error) { modelEls.text.textContent = `Download failed: ${res.error}`; return; }
+  if (res.error) { modelEls.text.textContent = `Download failed: ${res.error}`; if (whisper) $('whisperState').textContent = res.error; return; }
   setStatus('Speech model installed. Ready.', 'idle');
-  checkModel(els.language.value);
+  if (whisper) { modelEls.card.hidden = true; checkWhisper(); } else checkModel(els.language.value);
 }
 
 // ---- recording ----
@@ -140,6 +191,8 @@ async function start() {
   if (engine === 'deepgram' && !settings.hasDeepgramKey) { setStatus('Add your Deepgram key in Settings', 'error'); return; }
   if (engine === 'native' && !settings.nativeAvailable) { setStatus('Native helper not built — run native/stt/build.sh, or pick Deepgram', 'error'); return; }
   if (engine === 'native' && !(await checkModel(language))) { setStatus('Speech model missing — see the card above', 'error'); return; }
+  if (engine === 'whisper' && !settings.whisperAvailable) { setStatus('Whisper is not bundled in this build — run npm run build:whisper, or pick Deepgram', 'error'); return; }
+  if (engine === 'whisper' && !(await checkWhisper())) { setStatus('Whisper model missing — see the card above', 'error'); return; }
 
   els.toggle.disabled = true;
   setStatus('Requesting audio…', 'live');
@@ -153,6 +206,7 @@ async function start() {
   if (res.error) {
     streams.sys.getTracks().forEach((t) => t.stop()); streams.mic.getTracks().forEach((t) => t.stop());
     setStatus(res.error, 'error'); els.toggle.disabled = false;
+    if (res.code === 'model-missing') checkEngineModel(engine, language);
     return;
   }
 
@@ -172,9 +226,11 @@ async function start() {
       if (text && utt[speaker] === undefined) utt[speaker] = now();
       renderPartial(speaker, text);
     },
-    onFinal: (text) => {
-      const end = now();
-      const startSec = Math.min(utt[speaker] ?? Math.max(0, end - 1), end);
+    onFinal: (text, span) => {
+      // Whisper knows where the utterance sits in the stream; others are timed on arrival.
+      const t0s = t0 / 1000;
+      const end = span ? Math.max(0, span.end - t0s) : now();
+      const startSec = span ? Math.min(Math.max(0, span.start - t0s), end) : Math.min(utt[speaker] ?? Math.max(0, end - 1), end);
       delete utt[speaker];
       const commit = () => { api.segment({ speaker, start: startSec, end, text }); renderFinal(speaker, text, startSec); };
       if (speaker === 'THEM') { echoState.thems.push({ start: startSec, end, text }); commit(); return; }
@@ -185,7 +241,7 @@ async function start() {
   });
   const connect = (stream, speaker) => (engine === 'deepgram'
     ? STT.connectDeepgram({ stream, key: res.deepgramKey, language: res.deepgramLanguage, speaker, ...handlers(speaker) })
-    : STT.connectNative({ stream, locale: res.locale, speaker, ...handlers(speaker) }));
+    : STT.connectNative({ stream, locale: res.locale, language, engine, speaker, ...handlers(speaker) }));
   const sockets = [connect(streams.mic, 'ME'), connect(streams.sys, 'THEM')];
 
   // Mixed recording, chunks flushed to disk every 3s.
@@ -252,15 +308,32 @@ async function toggle() {
 
 // ---- settings panel ----
 function refreshLangNote() {
-  const mixedNative = els.engine.value === 'native' && els.language.value === 'mixed';
-  els.langNote.hidden = !mixedNative;
-  els.langNote.textContent = mixedNative
-    ? 'Native engine hears Spanish (es-ES) only — English words may be garbled. For true Spanish/English code-switching pick Deepgram (multi).'
-    : '';
+  const mixed = els.language.value === 'mixed';
+  const notes = {
+    native: 'Native engine hears Spanish (es-ES) only — English words may be garbled. For true Spanish/English code-switching pick Deepgram (multi).',
+    whisper: 'Whisper detects Spanish or English for each utterance (a sentence that switches mid-way stays in one language).',
+  };
+  const note = mixed ? notes[els.engine.value] || '' : '';
+  els.langNote.hidden = !note;
+  els.langNote.textContent = note;
+}
+
+function fillSelect(sel, options) {
+  const want = options.map((o) => `${o.id}=${o.label}`).join('|');
+  if (sel.dataset.options === want) return;
+  sel.dataset.options = want;
+  sel.replaceChildren(...options.map((o) => { const el = document.createElement('option'); el.value = o.id; el.textContent = o.label; return el; }));
 }
 
 function applySettings(s) {
   settings = s;
+  document.body.classList.add(`platform-${s.platform}`);
+  fillSelect(els.engine, s.engines);
+  fillSelect($('setEngine'), s.engines);
+  fillSelect($('setWhisperModel'), s.whisperModels);
+  const hasWhisper = s.engines.some((e) => e.id === 'whisper');
+  $('whisperSettings').hidden = !hasWhisper;
+  $('nativeModelRow').hidden = !s.engines.some((e) => e.id === 'native');
   $('setRoot').value = s.outputRoot;
   $('setEngine').value = s.engine;
   $('setLanguage').value = s.language;
@@ -290,7 +363,9 @@ async function testAudio() {
 
 async function refreshPermissions() {
   const p = await api.permStatus();
-  els.permCard.hidden = p.microphone === 'granted' && p.screen === 'granted';
+  // 'not-determined' on Windows just means never asked; only an explicit denial needs the card.
+  const micOk = p.microphone === 'granted' || (settings.platform !== 'darwin' && p.microphone === 'not-determined');
+  els.permCard.hidden = micOk && p.screen === 'granted';
 }
 
 // ---- boot ----
@@ -301,29 +376,44 @@ async function refreshPermissions() {
 
   els.toggle.addEventListener('click', toggle);
   els.openBtn.addEventListener('click', () => lastDir && api.openFolder(lastDir));
-  const onPick = () => { refreshLangNote(); if (els.engine.value === 'native') checkModel(els.language.value); else modelEls.card.hidden = true; };
+  const onPick = () => { refreshLangNote(); checkEngineModel(els.engine.value, els.language.value); };
   els.engine.addEventListener('change', onPick);
   els.language.addEventListener('change', onPick);
-  api.on('model:progress', ({ fraction }) => {
+  api.on('model:progress', ({ fraction, engine }) => {
     const p = Math.round((fraction || 0) * 100);
     modelEls.bar.style.width = `${p}%`;
     modelEls.pct.textContent = `${p}%`;
-    $('modelState').textContent = `Downloading Spanish model… ${p}%`;
+    if (engine === 'whisper') $('whisperState').textContent = `Downloading Whisper model… ${p}%`;
+    else $('modelState').textContent = `Downloading Spanish model… ${p}%`;
   });
   modelEls.btn.addEventListener('click', downloadModel);
   modelEls.dict.addEventListener('click', () => api.openPane('keyboard'));
+  modelEls.choose.addEventListener('click', chooseWhisperFile);
+  modelEls.openDir.addEventListener('click', () => api.whisperOpenDir());
+  $('setWhisperChoose').addEventListener('click', chooseWhisperFile);
+  $('setWhisperOpenDir').addEventListener('click', () => api.whisperOpenDir());
+  $('setWhisperModel').addEventListener('change', async (e) => { await saveSetting({ whisperModel: e.target.value }); checkWhisper(); });
+  $('setWhisperDownload').addEventListener('click', async () => {
+    model.engine = 'whisper';
+    await saveSetting({ whisperModel: $('setWhisperModel').value, whisperModelPath: '' });
+    if (!(await checkWhisper())) { modelEls.card.scrollIntoView({ block: 'start' }); downloadModel(); }
+  });
   $('setModelBtn').addEventListener('click', async () => {
     model.language = 'es';
+    model.engine = 'native';
     if (!(await checkModel('es')) && !modelEls.btn.hidden) {
       modelEls.card.scrollIntoView({ block: 'start' }); // progress bar lives in the card
       downloadModel();
     }
   });
-  if (els.engine.value === 'native') checkModel(els.language.value);
+  checkEngineModel(els.engine.value, els.language.value);
   api.on('toggle-recording', toggle);
   const showSettings = (open) => {
     els.settings.hidden = !open;
-    if (open) { els.settings.scrollIntoView({ block: 'start' }); checkModel('es'); }
+    if (!open) return;
+    els.settings.scrollIntoView({ block: 'start' });
+    if (settings.engines.some((e) => e.id === 'native')) checkModel('es');
+    if (settings.engines.some((e) => e.id === 'whisper')) checkWhisper();
   };
   api.on('open-settings', () => showSettings(true));
   $('settingsBtn').addEventListener('click', () => showSettings(els.settings.hidden));

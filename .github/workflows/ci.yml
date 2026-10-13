@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: npm test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - uses: ./.github/actions/whisper
+        with:
+          models: small-q5_1 large-v3-turbo-q5_0
+      - name: npm test (Whisper tests required, not skipped)
+        run: npm test
+        env:
+          CALLREC_REQUIRE_WHISPER: '1'
+      - name: Whisper benchmark on this runner
+        shell: bash
+        run: npm run --silent bench | tee -a "$GITHUB_STEP_SUMMARY"
+
+  windows-smoke:
+    name: Windows packaged-app smoke
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - uses: ./.github/actions/whisper
+      - name: Virtual sound card (runners have no audio device)
+        uses: LABSN/sound-ci-helpers@v1
+      - name: Package (unpacked dir, same files as the release zip)
+        run: npx electron-builder --win dir --publish never
+      - name: Smoke — autorun 25 s, fake mic = spanish.wav, system audio = english.wav on the virtual card
+        shell: pwsh
+        run: |
+          $wav = Join-Path $env:GITHUB_WORKSPACE 'test\fixtures\english.wav'
+          $player = Start-Job -ArgumentList $wav -ScriptBlock { param($f) while ($true) { (New-Object Media.SoundPlayer $f).PlaySync(); Start-Sleep -Seconds 1 } }
+          node scripts/smoke.js dist\win-unpacked\callrec.exe --seconds 25
+          $code = $LASTEXITCODE
+          Stop-Job $player; Receive-Job $player
+          exit $code

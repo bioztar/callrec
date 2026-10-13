@@ -1,0 +1,27 @@
+name: whisper.cpp + models
+description: Build (or restore) vendor/whisper/whisper-server and fetch the Whisper models into vendor/models.
+inputs:
+  models:
+    description: Space-separated catalogue model ids (src/lib/whisper-models.js)
+    default: small-q5_1
+runs:
+  using: composite
+  steps:
+    - name: Restore whisper-server
+      id: bin
+      uses: actions/cache@v4
+      with:
+        path: vendor/whisper
+        key: whisper-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-whisper.js') }}
+    - name: Build whisper-server (whisper.cpp, pinned tag)
+      if: steps.bin.outputs.cache-hit != 'true'
+      shell: bash
+      run: node scripts/build-whisper.js
+    - name: Restore models
+      uses: actions/cache@v4
+      with:
+        path: vendor/models
+        key: whisper-models-${{ inputs.models }}-${{ hashFiles('src/lib/whisper-models.js') }}
+    - name: Fetch models (sha256-verified)
+      shell: bash
+      run: for m in ${{ inputs.models }}; do node scripts/fetch-model.js "$m"; done
