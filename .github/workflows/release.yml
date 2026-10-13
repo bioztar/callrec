@@ -1,0 +1,107 @@
+name: Release
+
+# Tags build and publish; pull requests build the same artifacts without publishing.
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+      - run: npm ci
+      - uses: ./.github/actions/whisper
+      - run: npm test
+        env:
+          CALLREC_REQUIRE_WHISPER: '1'
+      - name: Build portable .exe + .zip
+        run: npm run dist:win
+      - name: Virtual sound card
+        uses: LABSN/sound-ci-helpers@v1
+      - name: Smoke the packaged app
+        shell: pwsh
+        run: |
+          $wav = Join-Path $env:GITHUB_WORKSPACE 'test\fixtures\english.wav'
+          $player = Start-Job -ArgumentList $wav -ScriptBlock { param($f) while ($true) { (New-Object Media.SoundPlayer $f).PlaySync(); Start-Sleep -Seconds 1 } }
+          node scripts/smoke.js dist\win-unpacked\callrec.exe --seconds 25
+          $code = $LASTEXITCODE
+          Stop-Job $player; Receive-Job $player
+          exit $code
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/*.exe
+            dist/*.zip
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Select the newest Xcode (SpeechAnalyzer needs the macOS 26 SDK)
+        run: |
+          X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || true)
+          if [ -n "$X" ]; then sudo xcode-select -s "$X"; fi
+          xcodebuild -version
+      - name: Build the native speech helper
+        run: |
+          if ! bash native/stt/build.sh; then
+            echo "::warning::macOS 26 SDK unavailable — building the helper with --no-analyzer (SFSpeechRecognizer only)"
+            bash native/stt/build.sh --no-analyzer
+          fi
+      - uses: ./.github/actions/whisper
+      - run: npm test
+        env:
+          CALLREC_REQUIRE_WHISPER: '1'
+      - name: Build unsigned .dmg
+        run: npm run dist:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - run: ls -la artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          body: |
+            Unsigned builds, built by GitHub Actions from ${{ github.sha }}.
+
+            **Windows 10/11** — `callrec-*-portable-x64.exe` (no install, no admin) or `callrec-*-win-x64.zip` (unzip anywhere, run `callrec.exe`).
+            SmartScreen will warn about an unknown publisher: **More info → Run anyway**.
+            On first use callrec downloads the Whisper model (190 MB) or lets you pick a model file you copied by hand — see the README.
+
+            **macOS (Apple silicon)** — `callrec-*-mac-arm64.dmg`. Unsigned: right-click the app → Open the first time.
