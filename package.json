@@ -7,7 +7,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/*.test.js",
+    "test": "node scripts/test.js",
     "build:stt": "bash native/stt/build.sh",
     "build:whisper": "node scripts/build-whisper.js",
     "fetch:model": "node scripts/fetch-model.js",
