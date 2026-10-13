@@ -32,7 +32,7 @@ const STT = (() => {
   }
 
   const DRAIN_MS = 2000;
-  const WHISPER_DRAIN_MS = 60000; // the last utterances may still be queued for transcription
+  const WHISPER_DRAIN_MS = 60000; // max silence from Whisper while it finishes queued utterances
 
   // ---- Deepgram (Nova-3 websocket) ----
   function connectDeepgram({ stream, key, language, onFinal, onPartial, onStatus, label }) {
@@ -126,8 +126,14 @@ const STT = (() => {
         this.readyState = 3;
         clearTimeout(this._deafTimer);
         try { window.callrec.sttStop(this.id); } catch { /* ignore */ }
-        setTimeout(() => this._dispose(), this.engine === 'whisper' ? WHISPER_DRAIN_MS : DRAIN_MS);
+        this._armDrainTimer();
       });
+    }
+
+    // Whisper may still be working through a backlog: wait as long as it keeps answering.
+    _armDrainTimer() {
+      clearTimeout(this._drainTimer);
+      this._drainTimer = setTimeout(() => this._dispose(), this.engine === 'whisper' ? WHISPER_DRAIN_MS : DRAIN_MS);
     }
 
     close() { this.drain(); }
@@ -155,6 +161,7 @@ const STT = (() => {
     }
 
     _handle(msg) {
+      if (this.readyState === 3 && this.engine === 'whisper') this._armDrainTimer();
       switch (msg.type) {
         case 'ready':
           this.readyState = 1;

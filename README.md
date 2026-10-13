@@ -28,8 +28,10 @@ bar. The file is checked against a pinned SHA-256. If your network blocks the do
 2. Click **Choose model file…** in callrec. Or copy the file into the models folder,
    `%APPDATA%\callrec\models\` (the **Open models folder** button opens it).
 
-Settings › Whisper model also offers `ggml-large-v3-turbo-q5_0.bin` (574 MB): more accurate, but only fast enough on a
-strong CPU. Any whisper.cpp `ggml-*.bin` model works through **Choose model file…**.
+On computers with fewer than 8 logical CPUs callrec picks `ggml-base-q5_1.bin` (60 MB) instead: it is less accurate
+but keeps up with live speech. If the app warns that Whisper is behind, pick a smaller model. Settings › Whisper model
+switches between base, small and `ggml-large-v3-turbo-q5_0.bin` (574 MB). Large is more accurate, but only fast enough
+on a strong CPU. Any whisper.cpp `ggml-*.bin` model works through **Choose model file…**.
 
 **Permissions.** Windows Settings › Privacy & security › Microphone must allow *Microphone access* and *Let
 desktop apps access your microphone*. callrec shows a button that opens that page if access is off. System audio

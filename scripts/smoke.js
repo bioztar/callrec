@@ -29,7 +29,10 @@ const out = path.join(root, 'meetings');
 const report = path.join(root, 'report.json');
 fs.mkdirSync(path.join(userData, 'models'), { recursive: true });
 fs.copyFileSync(model, path.join(userData, 'models', path.basename(model)));
-fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ outputRoot: out, engine: 'whisper', language: 'es' }));
+const { MODELS } = require('../src/lib/whisper-models');
+const whisperModel = Object.keys(MODELS).find((id) => MODELS[id].file === path.basename(model));
+if (!whisperModel) { console.error(`smoke: ${model} is not a catalogue model`); process.exit(2); }
+fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ outputRoot: out, engine: 'whisper', language: 'es', whisperModel }));
 
 const env = {
   ...process.env,
@@ -41,7 +44,8 @@ const env = {
 console.log(`smoke: ${exe}\n  profile ${userData}\n  output  ${out}`);
 const t0 = Date.now();
 const child = spawn(exe, [], { env, stdio: ['ignore', 'pipe', 'pipe'] });
-child.stdout.on('data', (d) => process.stdout.write(d));
+let stdout = '';
+child.stdout.on('data', (d) => { stdout += d; process.stdout.write(d); });
 child.stderr.on('data', (d) => process.stderr.write(d));
 const killer = setTimeout(() => { console.error('smoke: timeout, killing app'); child.kill(); }, (seconds + 150) * 1000);
 
@@ -50,6 +54,8 @@ child.on('exit', (code, signal) => {
   const fail = (msg) => { console.error(`SMOKE FAIL: ${msg}`); process.exit(1); };
   console.log(`smoke: app exited code=${code} signal=${signal} after ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   if (code !== 0) fail(`exit code ${code}`);
+  // A transcription error means queued speech was lost (e.g. the server stopped before the backlog drained).
+  if (/"code":"transcribe"/.test(stdout)) fail('Whisper transcription errors in the app log');
   if (!fs.existsSync(report)) fail('no autorun report (app quit before finishing the meeting?)');
   const r = JSON.parse(fs.readFileSync(report, 'utf8'));
   if (!r.dir) fail(`no meeting folder; renderer log:\n${(r.log || []).join('\n')}`);

@@ -360,7 +360,7 @@ app.whenReady().then(() => {
   if (!app.hasSingleInstanceLock()) return;
   settings = createSettings({
     file: path.join(app.getPath('userData'), 'settings.json'),
-    defaults: { ...platform.settingsDefaults(process.platform), whisperModel: whisperModels.DEFAULT_MODEL, whisperModelPath: '' },
+    defaults: { ...platform.settingsDefaults(process.platform), whisperModel: whisperModels.recommendedModel(require('os').cpus().length), whisperModelPath: '' },
     crypto: {
       available: () => safeStorage.isEncryptionAvailable(),
       encrypt: (s) => safeStorage.encryptString(s),
