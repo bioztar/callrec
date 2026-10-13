@@ -91,3 +91,10 @@ test('models: import copies a ggml file, rejects other files and corrupt catalog
   fs.writeFileSync(fakeSmall, fakeModel(10));
   assert.match((await models.importFile(fakeSmall, dir)).error, /checksum/);
 });
+
+test('recommendedModel: small from 8 logical CPUs, base below', () => {
+  assert.equal(models.recommendedModel(16), 'small-q5_1');
+  assert.equal(models.recommendedModel(8), 'small-q5_1');
+  assert.equal(models.recommendedModel(4), 'base-q5_1');
+  assert.ok(models.MODELS[models.recommendedModel(2)]);
+});

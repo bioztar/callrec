@@ -11,11 +11,17 @@ const path = require('path');
 const BASE_URL = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/';
 
 const MODELS = {
+  'base-q5_1': {
+    file: 'ggml-base-q5_1.bin',
+    bytes: 59707625,
+    sha256: '422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898',
+    label: 'Whisper base, multilingual (60 MB) — fastest, for CPUs with few cores',
+  },
   'small-q5_1': {
     file: 'ggml-small-q5_1.bin',
     bytes: 190085487,
     sha256: 'ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb',
-    label: 'Whisper small, multilingual (190 MB) — default',
+    label: 'Whisper small, multilingual (190 MB) — recommended',
   },
   'large-v3-turbo-q5_0': {
     file: 'ggml-large-v3-turbo-q5_0.bin',
@@ -25,6 +31,11 @@ const MODELS = {
   },
 };
 const DEFAULT_MODEL = 'small-q5_1';
+
+/// small keeps up with live speech from ~8 logical CPUs; below that base does.
+function recommendedModel(logicalCpus) {
+  return logicalCpus >= 8 ? DEFAULT_MODEL : 'base-q5_1';
+}
 
 function modelsDir(userData) { return path.join(userData, 'models'); }
 
@@ -145,4 +156,4 @@ async function importFile(src, dir) {
   return { ok: true, path: dest, name };
 }
 
-module.exports = { MODELS, DEFAULT_MODEL, BASE_URL, modelsDir, isGgmlFile, resolveModel, status, download, importFile, sha256File };
+module.exports = { MODELS, DEFAULT_MODEL, recommendedModel, BASE_URL, modelsDir, isGgmlFile, resolveModel, status, download, importFile, sha256File };

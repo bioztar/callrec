@@ -26,7 +26,7 @@ jobs:
       - run: npm ci
       - uses: ./.github/actions/whisper
         with:
-          models: small-q5_1 large-v3-turbo-q5_0
+          models: base-q5_1 small-q5_1 large-v3-turbo-q5_0
       - name: npm test (Whisper tests required, not skipped)
         run: npm test
         env:
