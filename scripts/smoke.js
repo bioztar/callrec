@@ -5,7 +5,7 @@
 // throw-away profile, lets it record CALLREC_AUTORUN_SEC seconds, and checks:
 //   - it exits 0 on its own,
 //   - the meeting folder has audio.webm, transcript.md, transcript.json,
-//   - with Whisper + a fake mic playing test/fixtures/spanish.wav, "Me" lines contain the expected words,
+//   - with Whisper + a fake mic playing test/fixtures/spanish.wav, the transcript contains the expected words,
 //   - "Them" lines are reported (they need real system audio playing; --require-them makes them mandatory).
 //
 //   node scripts/smoke.js <path-to-app-exe> [--model file] [--seconds 25] [--require-them]
@@ -64,11 +64,13 @@ child.on('exit', (code, signal) => {
   const audioBytes = fs.statSync(path.join(r.dir, 'audio.webm')).size;
   console.log(`smoke: audio.webm ${audioBytes} bytes, ${segs.length} segments`);
   console.log(fs.readFileSync(path.join(r.dir, 'transcript.md'), 'utf8'));
+  // Chromium's fake device may also feed the loopback track, in which case echo
+  // dedupe correctly drops the Me copy, so the fixture words may sit under either speaker.
   const me = said('ME');
-  const hits = ['equipo', 'prueba', 'llamadas', 'cliente', 'precios', 'lunes'].filter((w) => me.includes(w));
-  if (hits.length < 3) fail(`Me transcript lacks the fixture words (got "${me}")`);
   const them = said('THEM');
-  console.log(`smoke: Me words ${hits.join(',')} · Them ${them ? `"${them.slice(0, 120)}"` : '(none)'}`);
+  const hits = ['equipo', 'prueba', 'llamadas', 'cliente', 'precios', 'lunes'].filter((w) => `${me} ${them}`.includes(w));
+  if (hits.length < 3) fail(`transcript lacks the spanish.wav words (Me "${me}", Them "${them}")`);
+  console.log(`smoke: fixture words ${hits.join(',')} · Me ${me ? `"${me.slice(0, 120)}"` : '(none)'} · Them ${them ? `"${them.slice(0, 120)}"` : '(none)'}`);
   if (requireThem && !them) fail('no Them lines (system audio loopback heard nothing)');
   console.log('SMOKE OK');
 });
