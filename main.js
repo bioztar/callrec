@@ -102,7 +102,9 @@ function createWindow() {
       setTimeout(toggleRecording, 1500);
       setTimeout(toggleRecording, 1500 + AUTORUN_SEC * 1000);
       // Whisper may still be transcribing the last utterance: quit once the stop has finished.
-      const deadline = Date.now() + 1500 + AUTORUN_SEC * 1000 + 60000;
+      // Safety net only: normally we quit once the transcript is closed (Whisper may still be draining a backlog).
+      const drainSec = Number(process.env.CALLREC_AUTORUN_DRAIN_SEC) || 60;
+      const deadline = Date.now() + 1500 + AUTORUN_SEC * 1000 + drainSec * 1000;
       const quitWhenStopped = () => {
         if ((lastSession && !writer) || Date.now() > deadline) app.quit();
         else setTimeout(quitWhenStopped, 500);
