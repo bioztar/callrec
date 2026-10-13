@@ -2,7 +2,8 @@
   "name": "callrec",
   "version": "0.1.0",
   "private": true,
-  "description": "Mac meeting recorder: system audio + mic, live transcript, folder per meeting.",
+  "description": "Desktop meeting recorder: system audio + mic, live on-device transcript, folder per meeting.",
+  "license": "MIT",
   "main": "main.js",
   "scripts": {
     "start": "electron .",

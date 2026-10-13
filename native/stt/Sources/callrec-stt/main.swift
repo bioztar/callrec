@@ -2,16 +2,16 @@ import AVFoundation
 import Foundation
 import Speech
 
-// interg-stt — native macOS speech-to-text helper for InterG.
+// callrec-stt — native macOS speech-to-text helper for callrec.
 //
-//   interg-stt                stdin: 4-byte LE length + JSON config, then raw
+//   callrec-stt               stdin: 4-byte LE length + JSON config, then raw
 //                             PCM16LE @ 16 kHz mono until EOF.
 //                             stdout: one JSON object per line.
-//   interg-stt --selftest     start the engine with defaults, print the `ready`
+//   callrec-stt --selftest    start the engine with defaults, print the `ready`
 //                             (or `error`) line, exit. No audio is read.
-//   interg-stt --locales      print the locales this Mac can transcribe, exit.
+//   callrec-stt --locales     print the locales this Mac can transcribe, exit.
 //
-// Protocol: docs/native-stt-design.md §3.
+// Protocol: Protocol.swift (mirrored by src/native-stt.js).
 
 let out = OutputWriter()
 let args = Array(CommandLine.arguments.dropFirst())
@@ -35,7 +35,7 @@ if args.contains("--locales") {
     var supported = SFSpeechRecognizer.supportedLocales().map { $0.identifier }.sorted()
     var installed: [String] = []
 
-    #if !INTERG_NO_ANALYZER
+    #if !CALLREC_NO_ANALYZER
     if #available(macOS 26.0, *) {
         let semaphore = DispatchSemaphore(value: 0)
         Task.detached {

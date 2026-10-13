@@ -1,17 +1,41 @@
-# HANDOVER — callrec — 2026-10-07
-## State: app + native helper built and committed; `npm test` 12/12 green (incl. offline Spanish helper e2e); dmg rebuilt. NO live (speaker/mic) run of the final build yet.
-## Done this session
-- Electron app (main.js, preload.js, src/renderer/*, src/lib/*), native/stt helper (renamed callrec-stt, 2 first-compile Swift fixes).
-- Analyzer fixes: contiguous feed (no explicit bufferStartTime) — removes "timestamp overlaps" (Code=2), garbled starts, lost last words; next-utterance results parked so fast turn-taking neither merges nor duplicates; silence pad after each utterance (never clips real speech); EOF drains results.
-- Spanish default (es-ES / Deepgram es; mixed kept); helper `--model-status` / `--download-model`; in-app model card + Settings button; start refused without on-device model (no server fallback).
-- Offline e2e (test/helper-e2e.test.js): `say -o` Spanish sentences → helper; 2 gaps (1.3 s, 0.5 s); every sentence complete incl. first/last words.
-## In flight / partially done
-- Not verified live: Me+Them with real mic/speakers, model-download UI progress (helper flow verified from CLI only), Dock/titlebar click-test, Deepgram (no key).
-## Next steps (ordered)
-1. When no call is running: `npm start`, record ~1 min Spanish via speakers; check ~/Documents/callrec/<folder>/transcript.md.
-2. Click-test Dock restore / minimize / close-quits.
-3. Remove debug aids if unwanted: ts-debug logs (CALLREC_STT_DEBUG=1), CALLREC_AUTORUN_SEC hook.
-## Blockers / needs human
-- Live audible verification (Vitaly is on calls).
-## Key files touched
-- native/stt/Sources/callrec-stt/AnalyzerEngine.swift — analyzer feed/flush logic; ModelAssets.swift — model status/download; test/helper-e2e.test.js — offline regression
+# HANDOVER — callrec
+
+Notes for whoever picks the project up next.
+
+## State
+
+- Electron app (`main.js`, `preload.js`, `src/renderer/*`, `src/lib/*`) and the native macOS
+  speech helper (`native/stt`, Swift) are in place; `npm test` covers the libraries, echo
+  dedupe and an offline Spanish end-to-end run of the helper (macOS only, skipped elsewhere).
+- Analyzer feed is contiguous (no explicit `bufferStartTime`), which avoids "timestamp
+  overlaps" errors, garbled starts and lost last words. Results that belong to the next
+  utterance are parked, so fast turn-taking neither merges nor duplicates lines. A silence
+  pad closes each utterance without clipping speech; EOF drains pending results.
+- The native engine refuses to start without an on-device model (no server fallback); the
+  app offers the download with progress (`--model-status` / `--download-model`).
+
+## Not yet verified on real hardware
+
+- A live call with real mic + speakers (offline e2e only so far).
+- Model-download progress in the UI (the helper flow is verified from the CLI).
+- Dock/title-bar click behaviour (restore, minimise, close quits).
+- Deepgram (needs a key).
+
+## How to verify live
+
+1. `npm start`, record about a minute of speech played through the speakers plus your own
+   voice; check `~/Documents/callrec/<folder>/transcript.md`.
+2. Click-test Dock restore / minimise / close-quits.
+
+## Debug aids
+
+- `CALLREC_STT_DEBUG=1` — timestamp diagnostics from the helper on stderr.
+- `CALLREC_AUTORUN_SEC=N` — record N seconds and quit.
+- `CALLREC_FAKE_MODEL_MISSING=1` (dev only) — pretend the model is missing to test the
+  download card.
+
+## Key files
+
+- `native/stt/Sources/callrec-stt/AnalyzerEngine.swift` — analyzer feed/flush logic
+- `native/stt/Sources/callrec-stt/ModelAssets.swift` — model status/download
+- `test/helper-e2e.test.js` — offline regression for the helper
