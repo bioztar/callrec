@@ -1,9 +1,10 @@
 'use strict';
 
-// STT sockets. Both engines expose the same surface to app.js:
+// STT sockets. All engines expose the same surface to app.js:
 //   { readyState, send(), addEventListener('open'), close(), drain(): Promise, _ctx }
-// Each takes onPartial(text) / onFinal(text) callbacks and reports problems
-// through onStatus(message).
+// Each takes onPartial(text) / onFinal(text, span) callbacks and reports problems
+// through onStatus(message). `span` = { start, end } in seconds of the stream
+// when the engine knows them (Whisper), else undefined.
 
 const STT = (() => {
   // Wires a raw-PCM16/16kHz audio graph to a socket, buffering chunks captured
@@ -16,8 +17,13 @@ const STT = (() => {
       const src = ctx.createMediaStreamSource(stream);
       const node = new AudioWorkletNode(ctx, 'pcm-downsampler');
       node.port.onmessage = (e) => {
+        // Wall-clock second of the first audio sample, so engine stream offsets map onto it.
+        if (ws._audioT0 === undefined) ws._audioT0 = performance.now() / 1000 - e.data.byteLength / 32000;
         if (ws.readyState === 1) ws.send(e.data);
-        else if (ws.readyState === 0) { pending.push(e.data); if (pending.length > 250) pending.shift(); }
+        else if (ws.readyState === 0) {
+          pending.push(e.data);
+          if (pending.length > 250) ws._audioT0 += pending.shift().byteLength / 32000; // dropped audio
+        }
       };
       src.connect(node);
       ws._ctx = ctx;
@@ -26,6 +32,7 @@ const STT = (() => {
   }
 
   const DRAIN_MS = 2000;
+  const WHISPER_DRAIN_MS = 60000; // the last utterances may still be queued for transcription
 
   // ---- Deepgram (Nova-3 websocket) ----
   function connectDeepgram({ stream, key, language, onFinal, onPartial, onStatus, label }) {
@@ -76,7 +83,7 @@ const STT = (() => {
     return ws;
   }
 
-  // ---- Native (on-device helper via main process) ----
+  // ---- Native helper / Whisper (on-device, via the main process) ----
   const nativeSockets = new Map();
   let nativeSeq = 0;
   window.callrec.on('stt:event', (msg) => {
@@ -85,8 +92,10 @@ const STT = (() => {
   });
 
   class NativeSocket {
-    constructor({ speaker, locale, onFinal, onPartial, onStatus, label }) {
+    constructor({ speaker, locale, language, engine = 'native', onFinal, onPartial, onStatus, label }) {
       this.id = `${speaker}-${(nativeSeq += 1)}`;
+      this.engine = engine;
+      this.name = engine === 'whisper' ? 'Whisper' : 'native STT';
       this.readyState = 0;
       this.onFinal = onFinal; this.onPartial = onPartial; this.onStatus = onStatus; this.label = label;
       this._openHandlers = [];
@@ -95,7 +104,7 @@ const STT = (() => {
       this._warnedDeaf = false;
       this._drainResolve = null;
       nativeSockets.set(this.id, this);
-      window.callrec.sttStart({ id: this.id, speaker, locale })
+      window.callrec.sttStart({ id: this.id, speaker, locale, language })
         .then((res) => { if (res && res.error) this._fail(res.error); })
         .catch((err) => this._fail(err.message));
     }
@@ -117,7 +126,7 @@ const STT = (() => {
         this.readyState = 3;
         clearTimeout(this._deafTimer);
         try { window.callrec.sttStop(this.id); } catch { /* ignore */ }
-        setTimeout(() => this._dispose(), DRAIN_MS);
+        setTimeout(() => this._dispose(), this.engine === 'whisper' ? WHISPER_DRAIN_MS : DRAIN_MS);
       });
     }
 
@@ -130,7 +139,8 @@ const STT = (() => {
     }
 
     _armDeafWatchdog() {
-      if (this._warnedDeaf) return;
+      // Whisper only reports speech, so silence on one side is normal there (meters show levels).
+      if (this._warnedDeaf || this.engine === 'whisper') return;
       clearTimeout(this._deafTimer);
       this._deafTimer = setTimeout(() => {
         this._warnedDeaf = true;
@@ -139,7 +149,7 @@ const STT = (() => {
     }
 
     _fail(message) {
-      this.onStatus(`Native STT (${this.label}) failed: ${message}`);
+      this.onStatus(`${this.name} (${this.label}) failed: ${message}`);
       this.readyState = 3;
       this._dispose();
     }
@@ -158,12 +168,20 @@ const STT = (() => {
           clearTimeout(this._deafTimer); this._warnedDeaf = false;
           this.onPartial('');
           // Drop punctuation-only finals (e.g. ", .." when the locale can't hear the language).
-          if (msg.text && /[\p{L}\p{N}]/u.test(msg.text)) this.onFinal(msg.text.trim());
+          if (msg.text && /[\p{L}\p{N}]/u.test(msg.text)) {
+            const span = typeof msg.start === 'number' && this._audioT0 !== undefined
+              ? { start: this._audioT0 + msg.start, end: this._audioT0 + msg.end, lang: msg.lang } : undefined;
+            this.onFinal(msg.text.trim(), span);
+          }
+          // The native helper's last final ends a drain; Whisper sends `done` after its queue.
+          if (this.readyState === 3 && this.engine !== 'whisper') this._dispose();
+          break;
+        case 'done':
           if (this.readyState === 3) this._dispose();
           break;
         case 'error':
           if (msg.fatal) this._fail(msg.message);
-          else this.onStatus(`native STT (${this.label}): ${msg.message}`);
+          else this.onStatus(`${this.name} (${this.label}): ${msg.message}`);
           break;
         default:
           break;
@@ -171,8 +189,8 @@ const STT = (() => {
     }
   }
 
-  function connectNative({ stream, locale, speaker, onFinal, onPartial, onStatus, label }) {
-    const sock = new NativeSocket({ speaker, locale, onFinal, onPartial, onStatus, label });
+  function connectNative({ stream, locale, language, engine, speaker, onFinal, onPartial, onStatus, label }) {
+    const sock = new NativeSocket({ speaker, locale, language, engine, onFinal, onPartial, onStatus, label });
     wireAudioGraph(stream, sock);
     return sock;
   }

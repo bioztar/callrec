@@ -1,6 +1,6 @@
 {
   "name": "callrec",
-  "version": "0.1.0",
+  "version": "0.2.0-rc.1",
   "private": true,
   "description": "Desktop meeting recorder: system audio + mic, live on-device transcript, folder per meeting.",
   "license": "MIT",
@@ -9,7 +9,13 @@
     "start": "electron .",
     "test": "node --test test/*.test.js",
     "build:stt": "bash native/stt/build.sh",
-    "dist": "bash native/stt/build.sh && electron-builder --mac"
+    "build:whisper": "node scripts/build-whisper.js",
+    "fetch:model": "node scripts/fetch-model.js",
+    "bench": "node scripts/bench-whisper.js",
+    "smoke": "node scripts/smoke.js",
+    "dist": "bash native/stt/build.sh && node scripts/build-whisper.js && electron-builder --mac --publish never",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:win": "electron-builder --win --publish never"
   },
   "devDependencies": {
     "electron": "^33.2.1",
@@ -18,20 +24,75 @@
   "build": {
     "appId": "com.pro7ocol.callrec",
     "productName": "callrec",
-    "directories": { "output": "dist" },
-    "files": ["main.js", "preload.js", "src/**/*", "package.json"],
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "package.json",
+      "LICENSE"
+    ],
     "extraResources": [
-      { "from": "native/stt/.build/release/callrec-stt", "to": "native/stt/callrec-stt" }
+      {
+        "from": "vendor/whisper",
+        "to": "whisper",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "mac": {
       "category": "public.app-category.productivity",
       "identity": null,
-      "target": [{ "target": "dmg" }, { "target": "dir" }],
+      "target": [
+        {
+          "target": "dmg"
+        },
+        {
+          "target": "dir"
+        }
+      ],
       "extendInfo": {
         "NSMicrophoneUsageDescription": "callrec records your microphone so your side of the meeting is transcribed and saved.",
         "NSAudioCaptureUsageDescription": "callrec records system audio so the other side of the meeting is transcribed and saved.",
         "NSSpeechRecognitionUsageDescription": "callrec transcribes meeting audio on this Mac."
-      }
+      },
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+      "extraResources": [
+        {
+          "from": "native/stt/.build/release/callrec-stt",
+          "to": "native/stt/callrec-stt"
+        }
+      ]
+    },
+    "npmRebuild": false,
+    "publish": null,
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-win-x64.${ext}",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable-x64.exe"
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bioztar/callrec.git"
   }
 }

@@ -2,12 +2,17 @@
   color-scheme: dark;
   --bg: #14161a; --card: #1d2026; --line: #2c313a; --fg: #e8eaed; --dim: #8b919c;
   --accent: #4f8cff; --rec: #ff5a4f; --warn: #e0a32e; --me: #7ee0a0; --them: #8ec5ff;
-  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
 }
 * { box-sizing: border-box; }
 body { margin: 0; height: 100vh; display: flex; flex-direction: column; background: var(--bg); color: var(--fg); }
 header { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px 6px 84px; }
 header.drag { -webkit-app-region: drag; }
+/* Only macOS draws its window controls over the page (hiddenInset); Windows has a real title bar. */
+body:not(.platform-darwin) header { padding-left: 16px; }
+body:not(.platform-darwin) header.drag { -webkit-app-region: no-drag; }
+body:not(.platform-darwin) .mac-only, body.platform-darwin .win-only { display: none !important; }
+body:not(.platform-win32) .win-only { display: none !important; }
 .nodrag { -webkit-app-region: no-drag; }
 h1 { font-size: 15px; margin: 0; }
 h2 { font-size: 14px; margin: 0 0 8px; }
@@ -43,6 +48,7 @@ button:disabled { opacity: .5; cursor: default; }
 #meterThem { background: var(--them); }
 .grow { flex: 1; min-width: 120px; }
 #modelBar { background: var(--accent); }
+#modelPath, #whisperState { word-break: break-all; }
 .transcript-card { flex: 1; min-height: 160px; display: flex; }
 .transcript { flex: 1; overflow-y: auto; user-select: text; }
 .transcript div { margin: 0 0 6px; }
