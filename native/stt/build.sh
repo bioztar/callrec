@@ -20,7 +20,7 @@ cd "$(dirname "$0")"
 FLAGS=()
 for arg in "$@"; do
   case "$arg" in
-    --no-analyzer) FLAGS+=(-Xswiftc -DINTERG_NO_ANALYZER) ;;
+    --no-analyzer) FLAGS+=(-Xswiftc -DCALLREC_NO_ANALYZER) ;;
     -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     *) echo "build.sh: unknown argument '$arg'" >&2; exit 2 ;;
   esac

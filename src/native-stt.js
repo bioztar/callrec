@@ -106,7 +106,7 @@ function start(options, onEvent) {
     }
   });
 
-  // stderr is diagnostics only and is never parsed — see the design doc §3.4.
+  // stderr is diagnostics only and is never parsed.
   child.stderr.on('data', (data) => {
     const text = data.toString('utf8').trim();
     if (text) console.error(`[native-stt ${id}] ${text}`);

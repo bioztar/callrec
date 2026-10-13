@@ -31,7 +31,7 @@ func runModelMode(args: [String]) -> Never {
     if let index = args.firstIndex(of: "--locale"), index + 1 < args.count { localeId = args[index + 1] }
     let download = args.contains("--download-model")
 
-    #if INTERG_NO_ANALYZER
+    #if CALLREC_NO_ANALYZER
     emitLine(["type": "model-status", "locale": localeId, "analyzer": "unavailable", "sf": sfOnDevice(localeId)])
     exit(0)
     #else

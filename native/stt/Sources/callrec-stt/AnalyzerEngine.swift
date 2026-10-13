@@ -1,4 +1,4 @@
-#if !INTERG_NO_ANALYZER
+#if !CALLREC_NO_ANALYZER
 
 import AVFoundation
 import CoreMedia
@@ -36,7 +36,7 @@ final class AnalyzerEngine: STTEngine {
     private let continuation: AsyncStream<AnalyzerInput>.Continuation
 
     private let lock = NSLock()
-    private let timerQueue = DispatchQueue(label: "com.pro7ocol.interg.stt.analyzer")
+    private let timerQueue = DispatchQueue(label: "com.pro7ocol.callrec.stt.analyzer")
 
     /// Finalized text accumulated since the last emitted `final`.
     private var finalBuffer = ""

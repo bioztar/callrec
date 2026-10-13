@@ -3,7 +3,7 @@
 const LANGUAGES = {
   es: { label: 'Spanish', deepgram: 'es', native: 'es-ES' },
   en: { label: 'English', deepgram: 'en', native: 'en-US' },
-  // Apple's engines can't code-switch: native hears Spanish only (Vitaly is primarily Spanish).
+  // Apple's engines can't code-switch: native hears Spanish only (Spanish is the default).
   mixed: { label: 'Spanish (+ English words)', deepgram: 'multi', native: 'es-ES',
     nativeNote: 'native engine hears Spanish (es-ES) only, English words may be garbled; true code-switching needs Deepgram (multi)' },
 };
