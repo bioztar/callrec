@@ -77,15 +77,16 @@ each side's audio into utterances (voice-activity detection), and each line appe
 
 `npm run bench` measures every model present in `vendor/models` on the committed fixtures (Spanish, English, mixed
 ES/EN; [test/fixtures](test/fixtures/README.md)): word error rate and real-time factor (RTF, compute time / audio time;
-below 1 is faster than real time). CI runs it on `windows-latest` and `macos-latest` (job summary). On a 4-core
-x64 cloud VM:
+below 1 is faster than real time). CI runs it on `windows-latest` and `macos-latest` (job summary + `bench-*.json`
+artifact). On the `windows-latest` runner (4 vCPU, AMD EPYC 7763):
 
 | model | runtime | WER es | WER en | WER mixed | mean WER | RTF |
 |---|---|---|---|---|---|---|
-| **Parakeet TDT 0.6B v3** int8 | sherpa-onnx | 3.7 % | 0.0 % | 3.8 % | **2.5 %** | **0.12** |
-| Whisper small q5_1 | whisper.cpp | 11.1 % | 0.0 % | 11.5 % | 7.5 % | 0.57 |
-| Whisper large-v3-turbo q5_0 | whisper.cpp | 11.1 % | 0.0 % | 11.5 % | 7.5 % | 3.06 |
-| Whisper large-v3 q5_0 | whisper.cpp | 3.7 % | 0.0 % | 3.8 % | 2.5 % | 3.75 |
+| **Parakeet TDT 0.6B v3** int8 | sherpa-onnx | 3.7 % | 0.0 % | 3.8 % | **2.5 %** | **0.14** |
+| Whisper base q5_1 | whisper.cpp | 14.8 % | 0.0 % | 7.7 % | 7.5 % | 0.61 |
+| Whisper small q5_1 | whisper.cpp | 11.1 % | 0.0 % | 11.5 % | 7.5 % | 2.40 |
+| Whisper large-v3-turbo q5_0 | whisper.cpp | 11.1 % | 0.0 % | 11.5 % | 7.5 % | 11.48 |
+| Whisper large-v3 q5_0 | whisper.cpp | 3.7 % | 0.0 % | 3.8 % | 2.5 % | 14.09 |
 
 The fixtures are short, so the WER spread is small; the only Spanish error left is "Hola" heard as "El".
 
@@ -124,7 +125,7 @@ npm run fetch:model          # optional: model into vendor/models (for tests and
 bash native/stt/build.sh     # macOS only: on-device speech helper (Xcode 26+, macOS 26 SDK; --no-analyzer for older)
 npm start
 npm test                     # node --test; Whisper tests run when the binary + model are present
-npm run bench                # Whisper speed on this machine
+npm run bench                # WER + speed of every model in vendor/models
 npm run dist:win             # Windows: portable .exe + .zip in dist/
 npm run dist                 # macOS: unsigned .app + .dmg in dist/
 ```
