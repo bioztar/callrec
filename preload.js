@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('callrec', {
   modelDownload: invoke('model:download'),
   whisperStatus: invoke('whisper:status'),
   whisperDownload: invoke('whisper:download'),
+  whisperCancel: invoke('whisper:cancel'),
   whisperChoose: invoke('whisper:choose'),
   whisperOpenDir: invoke('whisper:openDir'),
   sessionStart: invoke('session:start'),

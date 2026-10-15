@@ -15,6 +15,7 @@ const fs = require('fs');
 const nativeStt = require('./src/native-stt');
 const whisperStt = require('./src/whisper-stt');
 const whisperModels = require('./src/lib/whisper-models');
+const { createDownloadManager } = require('./src/lib/model-downloads');
 const platform = require('./src/lib/platform');
 const { createDisplayMediaHandler } = require('./src/lib/display-media');
 const { createSettings } = require('./src/lib/settings');
@@ -213,22 +214,28 @@ function wireIpc() {
   const progress = (payload) => { if (win && !win.isDestroyed()) win.webContents.send('model:progress', payload); };
 
   // ---- Whisper model: status, first-use download, manual file, folder ----
-  let whisperDownload = null;
-  ipcMain.handle('whisper:status', () => ({ ...whisperStatus(), downloading: Boolean(whisperDownload) }));
+  // Always the selected model unless that exact file is installed; a click on the
+  // running download rejoins it; another model replaces it; Cancel aborts it.
+  const whisperDownloads = createDownloadManager({
+    isInstalled: (id) => whisperModels.status({ dir: whisperDir(), id }).installed,
+    start: ({ id, signal, onProgress }) => whisperModels.download({
+      id,
+      dir: whisperDir(),
+      signal,
+      fetchImpl: (url, init) => net.fetch(url, init), // Chromium network stack: system / corporate proxy applies
+      onProgress,
+    }),
+    onProgress: ({ id, fraction }) => progress({ engine: 'whisper', id, fraction }),
+  });
+  ipcMain.handle('whisper:status', () => ({ ...whisperStatus(), downloading: whisperDownloads.current() }));
   ipcMain.handle('whisper:download', async (_e, id) => {
     const modelId = whisperModels.MODELS[id] ? id : settings.get().whisperModel;
-    if (!whisperDownload) {
-      whisperDownload = whisperModels.download({
-        id: modelId,
-        dir: whisperDir(),
-        fetchImpl: (url) => net.fetch(url), // Chromium network stack: system / corporate proxy applies
-        onProgress: (fraction) => progress({ engine: 'whisper', fraction }),
-      }).finally(() => { whisperDownload = null; });
-    }
-    const res = await whisperDownload;
+    const job = whisperDownloads.request(modelId);
+    const res = await job.promise;
     if (res.ok) settings.set({ whisperModel: modelId, whisperModelPath: '' });
-    return res;
+    return { ...res, id: modelId };
   });
+  ipcMain.handle('whisper:cancel', () => whisperDownloads.cancel());
   ipcMain.handle('whisper:choose', async () => {
     const pick = await dialog.showOpenDialog(win, {
       title: 'Choose a Whisper model file (ggml-*.bin)',
@@ -289,7 +296,7 @@ function wireIpc() {
       const model = whisperStatus(s);
       if (!model.ready) return { error: 'No Whisper model yet.', code: 'model-missing', model };
       modelPath = model.path;
-      modelName = model.name;
+      modelName = model.short; // the file actually loaded, not the setting id (may be a fallback)
       locale = { es: 'es', en: 'en', mixed: 'auto (es/en per utterance)' }[language];
     } else {
       return { error: `Unknown engine "${engine}"` };

@@ -97,7 +97,7 @@ function makeMeter(ctx, stream, el) {
 }
 
 // ---- on-device model card (download with progress / Dictation instructions) ----
-const model = { language: null, engine: null, busy: false };
+const model = { language: null, engine: null, busy: false, downloadingId: null, fraction: 0 };
 const modelEls = {
   card: $('modelCard'), title: $('modelTitle'), text: $('modelText'), btn: $('modelDownload'),
   dict: $('modelDictation'), barWrap: $('modelBarWrap'), bar: $('modelBar'), pct: $('modelPct'),
@@ -108,9 +108,11 @@ const mb = (bytes) => `${Math.round(bytes / 1e6)} MB`;
 /// Whisper flavour of the model card: download on first use, or a file placed by hand.
 async function checkWhisper() {
   const st = await api.whisperStatus();
-  $('whisperState').textContent = st.ready
-    ? `Using ${st.name} — ${st.path}`
-    : `No model yet. Download it, or copy ${st.expected} into ${st.dir}`;
+  if (!model.busy) {
+    $('whisperState').textContent = st.installed
+      ? `${st.message} — ${st.path}`
+      : `${st.message}. Download it, or copy ${st.expected} into ${st.dir}`;
+  }
   $('setWhisperModel').value = st.id;
   if (st.ready) { if (model.engine === 'whisper') modelEls.card.hidden = true; return true; }
   model.engine = 'whisper';
@@ -167,21 +169,52 @@ async function checkModel(language) {
   return false;
 }
 
-async function downloadModel() {
-  if (model.busy) return;
-  model.busy = true;
-  modelEls.btn.disabled = true;
+function showDownloading() {
+  const p = Math.round(model.fraction * 100);
+  modelEls.card.hidden = false;
+  modelEls.btn.hidden = false;
+  modelEls.btn.textContent = 'Cancel download';
   modelEls.barWrap.hidden = false;
-  modelEls.bar.style.width = '0';
+  modelEls.bar.style.width = `${p}%`;
+  modelEls.pct.textContent = `${p}%`;
+  $('setWhisperDownload').textContent = 'Cancel download';
+}
+
+/// Downloads the picked model. While one runs, the same model shows its progress
+/// (never a silent no-op), a different Whisper model replaces it.
+async function downloadModel() {
   const whisper = model.engine === 'whisper';
-  const res = whisper ? await api.whisperDownload($('setWhisperModel').value) : await api.modelDownload(model.language || els.language.value);
+  const id = whisper ? $('setWhisperModel').value : null;
+  if (model.busy && (!whisper || id === model.downloadingId)) {
+    showDownloading();
+    modelEls.text.textContent = 'Download in progress — the bar shows how far it is. "Cancel download" stops it.';
+    modelEls.card.scrollIntoView({ block: 'start' });
+    return;
+  }
+  const token = Symbol('download');
+  model.busy = token;
+  model.downloadingId = id;
+  model.fraction = 0;
+  showDownloading();
+  const res = whisper ? await api.whisperDownload(id) : await api.modelDownload(model.language || els.language.value);
+  if (model.busy !== token) return; // replaced by a download of another model
   model.busy = false;
+  model.downloadingId = null;
   modelEls.btn.disabled = false;
   modelEls.barWrap.hidden = true;
   modelEls.pct.textContent = '';
-  if (res.error) { modelEls.text.textContent = `Download failed: ${res.error}`; if (whisper) $('whisperState').textContent = res.error; return; }
+  $('setWhisperDownload').textContent = 'Download';
+  if (res.error) {
+    modelEls.text.textContent = res.canceled ? 'Download canceled.' : `Download failed: ${res.error}`;
+    if (whisper) { modelEls.btn.textContent = 'Download again'; $('whisperState').textContent = res.canceled ? 'Download canceled.' : res.error; }
+    return;
+  }
   setStatus('Speech model installed. Ready.', 'idle');
   if (whisper) { modelEls.card.hidden = true; checkWhisper(); } else checkModel(els.language.value);
+}
+
+function cancelDownload() {
+  if (model.engine === 'whisper') api.whisperCancel();
 }
 
 // ---- recording ----
@@ -380,13 +413,17 @@ async function refreshPermissions() {
   els.engine.addEventListener('change', onPick);
   els.language.addEventListener('change', onPick);
   api.on('model:progress', ({ fraction, engine }) => {
-    const p = Math.round((fraction || 0) * 100);
+    model.fraction = fraction || 0;
+    const p = Math.round(model.fraction * 100);
     modelEls.bar.style.width = `${p}%`;
     modelEls.pct.textContent = `${p}%`;
     if (engine === 'whisper') $('whisperState').textContent = `Downloading Whisper model… ${p}%`;
     else $('modelState').textContent = `Downloading Spanish model… ${p}%`;
   });
-  modelEls.btn.addEventListener('click', downloadModel);
+  modelEls.btn.addEventListener('click', () => {
+    if (model.busy && model.engine === 'whisper' && modelEls.btn.textContent === 'Cancel download') cancelDownload();
+    else downloadModel();
+  });
   modelEls.dict.addEventListener('click', () => api.openPane('keyboard'));
   modelEls.choose.addEventListener('click', chooseWhisperFile);
   modelEls.openDir.addEventListener('click', () => api.whisperOpenDir());
@@ -395,8 +432,14 @@ async function refreshPermissions() {
   $('setWhisperModel').addEventListener('change', async (e) => { await saveSetting({ whisperModel: e.target.value }); checkWhisper(); });
   $('setWhisperDownload').addEventListener('click', async () => {
     model.engine = 'whisper';
-    await saveSetting({ whisperModel: $('setWhisperModel').value, whisperModelPath: '' });
-    if (!(await checkWhisper())) { modelEls.card.scrollIntoView({ block: 'start' }); downloadModel(); }
+    const id = $('setWhisperModel').value;
+    if (model.busy && id === model.downloadingId) { cancelDownload(); return; }
+    await saveSetting({ whisperModel: id, whisperModelPath: '' });
+    const st = await api.whisperStatus();
+    await checkWhisper();
+    if (st.installed) { $('whisperState').textContent = `${st.message} — already installed.`; return; }
+    modelEls.card.scrollIntoView({ block: 'start' });
+    downloadModel();
   });
   $('setModelBtn').addEventListener('click', async () => {
     model.language = 'es';

@@ -45,8 +45,9 @@ test('models: download → progress, verified, renamed; status becomes ready', a
   assert.ok(ticks.every((f, i) => i === 0 || f >= ticks[i - 1]));
   assert.ok(fs.existsSync(path.join(dir, 'ggml-test.bin')) && !fs.existsSync(path.join(dir, 'ggml-test.bin.part')));
   const st = models.status({ dir });
-  assert.equal(st.ready, true); // found by scanning the folder
-  assert.equal(st.source, 'found');
+  assert.equal(st.ready, true); // found by scanning the folder…
+  assert.equal(st.installed, false); // …but it is not the selected model
+  assert.equal(st.source, 'fallback');
 });
 
 test('models: checksum mismatch and HTTP errors leave nothing behind', async () => {
@@ -63,12 +64,13 @@ test('models: checksum mismatch and HTTP errors leave nothing behind', async () 
   assert.deepEqual(fs.readdirSync(dir), []);
 });
 
-test('models: resolve order — chosen file, catalogue file, any ggml file; non-models ignored', () => {
+test('models: resolve = chosen file, else the catalogue file only; fallback = another ggml file; non-models ignored', () => {
   const dir = tmp();
   assert.equal(models.resolveModel({ dir }), null);
   fs.writeFileSync(path.join(dir, 'ggml-zzz.bin'), fakeModel(10));
   fs.writeFileSync(path.join(dir, 'ggml-aaa.bin'), 'not a model');
-  assert.equal(models.resolveModel({ dir }).name, 'ggml-zzz.bin');
+  assert.equal(models.resolveModel({ dir }), null);
+  assert.equal(models.fallbackModel(dir).name, 'ggml-zzz.bin');
   fs.writeFileSync(path.join(dir, 'ggml-small-q5_1.bin'), fakeModel(10));
   assert.equal(models.resolveModel({ dir }).source, 'catalogue');
   const chosen = path.join(tmp(), 'my-model.bin');
