@@ -6,7 +6,7 @@
 
 const {
   app, BrowserWindow, ipcMain, Menu, dialog, shell, session, desktopCapturer,
-  globalShortcut, safeStorage, systemPreferences, net, Tray, nativeImage, Notification,
+  globalShortcut, safeStorage, systemPreferences, net, Tray, nativeImage, Notification, powerMonitor,
 } = require('electron');
 const path = require('path');
 const os = require('os');
@@ -138,6 +138,7 @@ function createWindow() {
   // Windows: ✕ hides to the tray (Vitaly's choice for this app); Quit is in the tray menu.
   // macOS: the red traffic light still quits.
   win.on('close', (event) => { if (closePolicy.onClose(event, win) === 'quit' && IS_MAC) app.quit(); });
+  if (process.platform === 'win32') win.on('session-end', onSessionEnd);
 }
 
 // ---- tray -------------------------------------------------------------------
@@ -177,6 +178,22 @@ function requestQuit() {
     forceFinish: finishSession,
     quit: () => app.quit(),
   });
+}
+
+/// Windows shutdown / sign-out: 'before-quit' may not come before the window
+/// closes, so close the meeting files now and let the window go (never block
+/// shutdown). The final pass is queued and resumes on the next launch.
+function onSessionEnd() {
+  trayLib.endSessionNow({
+    policy: closePolicy,
+    finishSession,
+    stopEngines: () => {
+      nativeStt.stopAll();
+      whisperStt.stopAll();
+      if (finalServer) finalServer.stop();
+    },
+  });
+  app.quit();
 }
 
 function createTray() {
@@ -532,6 +549,7 @@ app.whenReady().then(() => {
   if (process.platform === 'win32') app.setAppUserModelId('com.pro7ocol.callrec');
   createTray();
   createWindow();
+  if (process.platform === 'win32') powerMonitor.on('shutdown', onSessionEnd);
   // Dock / taskbar click restores from any state (desktop-app-ux rule 2).
   app.on('activate', showWindow);
   // Meetings whose final pass was cut short by a quit (or waited for the model).

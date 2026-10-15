@@ -104,6 +104,26 @@ test('close-to-tray: ✕ hides (Windows), hint only the first time, Quit really 
   assert.equal(mac.onClose(ev(), win), 'quit');
 });
 
+test('session-end (Windows shutdown/sign-out): quits instead of hiding, files closed synchronously, engines stopped', () => {
+  const win = fakeWindow();
+  const ev = () => ({ prevented: false, preventDefault() { this.prevented = true; } });
+  const c = tray.createCloseToTray({ platform: 'win32', hintShown: true, markHintShown() {}, notify() {} });
+  const calls = [];
+  tray.endSessionNow({ policy: c, finishSession: () => calls.push(c.quitting ? 'finish(quitting)' : 'finish'), stopEngines: () => calls.push('stop') });
+  assert.deepEqual(calls, ['finish(quitting)', 'stop']); // quitting first: the final pass is only queued
+  const e = ev();
+  assert.equal(c.onClose(e, win), 'quit');
+  assert.equal(e.prevented, false); // never blocks shutdown
+  assert.equal(win.visible, true);
+
+  // A failing flush still lets Windows end the session.
+  const c2 = tray.createCloseToTray({ platform: 'win32', hintShown: true, markHintShown() {}, notify() {} });
+  const stopped = [];
+  assert.throws(() => tray.endSessionNow({ policy: c2, finishSession: () => { throw new Error('disk'); }, stopEngines: () => stopped.push('stop') }), /disk/);
+  assert.deepEqual(stopped, ['stop']);
+  assert.equal(c2.onClose(ev(), win), 'quit');
+});
+
 test('quit: stops an active recording through the renderer, waits for the files, then quits', async () => {
   const log = [];
   let recording = true;

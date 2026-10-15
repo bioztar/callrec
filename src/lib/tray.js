@@ -145,4 +145,17 @@ async function quitCleanly({ isRecording, stopRecording, forceFinish, quit, time
   quit();
 }
 
-module.exports = { tooltip, shortcutLabel, menuTemplate, iconBitmap, createTrayController, createCloseToTray, quitCleanly, clock, IDLE_TIP };
+/// Windows shutdown / sign-out ('session-end'): no time for the renderer round
+/// trip and no reliable 'before-quit'. Mark quitting so ✕ really closes (never
+/// block shutdown), close the meeting files synchronously (the final pass is
+/// queued, not run, so it resumes on the next launch), stop the engines.
+function endSessionNow({ policy, finishSession, stopEngines }) {
+  policy.setQuitting();
+  try {
+    finishSession();
+  } finally {
+    stopEngines();
+  }
+}
+
+module.exports = { tooltip, shortcutLabel, menuTemplate, iconBitmap, createTrayController, createCloseToTray, quitCleanly, endSessionNow, clock, IDLE_TIP };

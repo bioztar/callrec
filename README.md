@@ -46,7 +46,8 @@ folder, `%APPDATA%\callrec\models\` (**Open models folder** opens it), or use **
 **Tray.** callrec lives in the notification area (the icon gets a red dot while recording; the tooltip shows the
 elapsed time). Left-click shows the window. Right-click: **Start/Stop recording** (with the shortcut), **Show callrec**,
 **Open recordings folder**, **Quit**. Closing the window (✕) keeps callrec running in the tray, ready for the next
-call; **Quit** stops a running recording cleanly first. callrec does not start at login. Recording works with the
+call; **Quit** stops a running recording cleanly first. Windows shutdown or sign-out never waits on callrec: a
+running recording is closed on the spot and its final pass runs on the next launch. callrec does not start at login. Recording works with the
 window hidden (tray menu or shortcut).
 
 **Permissions.** Windows Settings › Privacy & security › Microphone must allow *Microphone access* and *Let
