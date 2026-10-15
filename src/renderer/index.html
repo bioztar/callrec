@@ -84,7 +84,7 @@
         <span id="modelState" class="note"></span>
       </div>
       <div id="whisperSettings" hidden>
-        <label>Whisper model
+        <label>Live model <span class="note">— the draft while the call runs</span>
           <div class="row">
             <select id="setWhisperModel"></select>
             <button id="setWhisperDownload">Download</button>
@@ -93,6 +93,14 @@
           </div>
         </label>
         <p id="whisperState" class="note"></p>
+        <label>Final model <span class="note">— re-transcribes the recording after Stop</span>
+          <div class="row">
+            <select id="setFinalModel"></select>
+            <button id="setFinalDownload">Download</button>
+            <button id="setFinalChoose" class="ghost">Choose model file…</button>
+          </div>
+        </label>
+        <p id="finalState" class="note"></p>
       </div>
       <label>Output folder
         <div class="row">

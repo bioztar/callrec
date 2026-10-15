@@ -22,6 +22,8 @@ const seconds = Number(opt('--seconds', '25'));
 const drainSec = Number(opt('--drain', '600')); // slow runners need minutes to finish the Whisper queue
 const model = opt('--model', path.join(__dirname, '..', 'vendor', 'models', 'ggml-small-q5_1.bin'));
 const requireThem = args.includes('--require-them');
+// --final <Parakeet model folder>: run the final pass with Parakeet (exercises the bundled sherpa-onnx).
+const finalDir = opt('--final', '');
 if (!exe || !fs.existsSync(exe)) { console.error(`usage: smoke.js <app exe>  (got ${exe})`); process.exit(2); }
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'callrec-smoke-'));
@@ -30,10 +32,11 @@ const out = path.join(root, 'meetings');
 const report = path.join(root, 'report.json');
 fs.mkdirSync(path.join(userData, 'models'), { recursive: true });
 fs.copyFileSync(model, path.join(userData, 'models', path.basename(model)));
+if (finalDir) fs.cpSync(finalDir, path.join(userData, 'models', path.basename(finalDir)), { recursive: true });
 const { MODELS } = require('../src/lib/whisper-models');
 const whisperModel = Object.keys(MODELS).find((id) => MODELS[id].file === path.basename(model));
 if (!whisperModel) { console.error(`smoke: ${model} is not a catalogue model`); process.exit(2); }
-fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ outputRoot: out, engine: 'whisper', language: 'es', whisperModel }));
+fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ outputRoot: out, engine: 'whisper', language: 'es', liveModel: whisperModel, finalModel: finalDir ? 'parakeet-tdt-0.6b-v3' : whisperModel }));
 
 const env = {
   ...process.env,
@@ -61,11 +64,16 @@ child.on('exit', (code, signal) => {
   if (!fs.existsSync(report)) fail('no autorun report (app quit before finishing the meeting?)');
   const r = JSON.parse(fs.readFileSync(report, 'utf8'));
   if (!r.dir) fail(`no meeting folder; renderer log:\n${(r.log || []).join('\n')}`);
-  for (const f of ['audio.webm', 'transcript.md', 'transcript.json']) {
+  // Two-pass: the final pass ran over the kept channel audio, the live draft is kept.
+  if (r.final !== 'done') fail(`final pass did not finish (${r.final})`);
+  for (const f of ['audio.webm', 'transcript.md', 'transcript.json', 'transcript.draft.md', 'transcript.draft.json']) {
     const p = path.join(r.dir, f);
     if (!fs.existsSync(p) || !fs.statSync(p).size) fail(`${f} missing or empty`);
   }
   const t = JSON.parse(fs.readFileSync(path.join(r.dir, 'transcript.json'), 'utf8'));
+  if (!/final pass/.test(t.engine)) fail(`transcript.json is not the final pass (engine ${t.engine})`);
+  if (finalDir && !/^Parakeet/.test(t.engine)) fail(`final pass did not use Parakeet (engine ${t.engine})`);
+  if (fs.existsSync(path.join(r.dir, 'audio-me.wav'))) fail('channel audio not removed after the final pass');
   const segs = t.segments || [];
   const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const said = (who) => norm(segs.filter((s) => s.speaker === who).map((s) => s.text).join(' '));

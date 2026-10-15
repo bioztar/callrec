@@ -73,7 +73,7 @@ function toFinal(reply, { start, end }) {
 /// allow (e.g. Catalan for a Spanish clip): it must be redone in the fallback.
 function needsRetry(reply, language) {
   const m = mode(language);
-  if (!m.allowed) return false;
+  if (!m.allowed || (reply && reply.autoLanguage)) return false; // Parakeet identifies the language itself
   return !m.allowed.includes(langCode(reply && reply.language));
 }
 

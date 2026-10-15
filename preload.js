@@ -16,18 +16,20 @@ contextBridge.exposeInMainWorld('callrec', {
   modelDownload: invoke('model:download'),
   whisperStatus: invoke('whisper:status'),
   whisperDownload: invoke('whisper:download'),
+  whisperCancel: invoke('whisper:cancel'),
   whisperChoose: invoke('whisper:choose'),
   whisperOpenDir: invoke('whisper:openDir'),
   sessionStart: invoke('session:start'),
   sessionStop: invoke('session:stop'),
   recChunk: (bytes) => ipcRenderer.send('session:audio', bytes),
   segment: (seg) => ipcRenderer.send('session:segment', seg),
+  channelPcm: (speaker, buf, offsetSec) => ipcRenderer.send('session:pcm', speaker, buf, offsetSec),
   openFolder: invoke('shell:openFolder'),
   sttStart: invoke('stt:start'),
   sttChunk: (id, buf) => ipcRenderer.send('stt:chunk', id, buf),
   sttStop: (id) => ipcRenderer.send('stt:stop', id),
   on: (channel, fn) => {
-    const allowed = ['stt:event', 'toggle-recording', 'open-settings', 'model:progress'];
+    const allowed = ['stt:event', 'toggle-recording', 'stop-recording', 'open-settings', 'model:progress', 'final:state'];
     if (allowed.includes(channel)) ipcRenderer.on(channel, (_e, ...args) => fn(...args));
   },
 });

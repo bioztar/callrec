@@ -26,14 +26,21 @@ jobs:
       - run: npm ci
       - uses: ./.github/actions/whisper
         with:
-          models: base-q5_1 small-q5_1 large-v3-turbo-q5_0
-      - name: npm test (Whisper tests required, not skipped)
+          models: base-q5_1 small-q5_1 large-v3-turbo-q5_0 large-v3-q5_0 parakeet-tdt-0.6b-v3
+      - name: npm test (Whisper + Parakeet tests required, not skipped)
         run: npm test
         env:
           CALLREC_REQUIRE_WHISPER: '1'
-      - name: Whisper benchmark on this runner
+          CALLREC_REQUIRE_PARAKEET: '1'
+      - name: Model benchmark on this runner (WER + RTF)
         shell: bash
-        run: npm run --silent bench | tee -a "$GITHUB_STEP_SUMMARY"
+        run: npm run --silent bench -- --json bench-${{ matrix.os }}.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-${{ matrix.os }}
+          path: bench-${{ matrix.os }}.json
+          if-no-files-found: ignore
 
   windows-smoke:
     name: Windows packaged-app smoke
@@ -46,6 +53,8 @@ jobs:
           cache: npm
       - run: npm ci
       - uses: ./.github/actions/whisper
+        with:
+          models: small-q5_1 parakeet-tdt-0.6b-v3
       - name: Virtual sound card (runners have no audio device)
         uses: LABSN/sound-ci-helpers@v1
       - name: Package (unpacked dir, same files as the release zip)
@@ -55,7 +64,7 @@ jobs:
         run: |
           $wav = Join-Path $env:GITHUB_WORKSPACE 'test\fixtures\english.wav'
           $player = Start-Job -ArgumentList $wav -ScriptBlock { param($f) while ($true) { (New-Object Media.SoundPlayer $f).PlaySync(); Start-Sleep -Seconds 1 } }
-          node scripts/smoke.js dist\win-unpacked\callrec.exe --seconds 25
+          node scripts/smoke.js dist\win-unpacked\callrec.exe --seconds 25 --final vendor\models\parakeet-tdt-0.6b-v3-int8
           $code = $LASTEXITCODE
           Stop-Job $player; Receive-Job $player
           exit $code
