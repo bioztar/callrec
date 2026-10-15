@@ -108,6 +108,6 @@ jobs:
 
             **Windows 10/11** — `callrec-*-portable-x64.exe` (no install, no admin) or `callrec-*-win-x64.zip` (unzip anywhere, run `callrec.exe`).
             SmartScreen will warn about an unknown publisher: **More info → Run anyway**.
-            On first use callrec downloads the Whisper model (190 MB) or lets you pick a model file you copied by hand — see the README.
+            On first use callrec downloads the speech model (Parakeet TDT 0.6B v3, about 670 MB, once) or lets you pick a model folder you copied by hand — see the README.
 
             **macOS (Apple silicon)** — `callrec-*-mac-arm64.dmg`. Unsigned: right-click the app → Open the first time.
