@@ -32,6 +32,13 @@ const MODELS = {
     label: 'Whisper large-v3-turbo, multilingual (574 MB) — more accurate, needs a fast CPU',
     short: 'large-v3-turbo',
   },
+  'large-v3-q5_0': {
+    file: 'ggml-large-v3-q5_0.bin',
+    bytes: 1081140203,
+    sha256: 'd75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1',
+    label: 'Whisper large-v3, multilingual (1.1 GB) — slow on a laptop CPU',
+    short: 'large-v3',
+  },
 };
 const DEFAULT_MODEL = 'small-q5_1';
 

@@ -21,6 +21,7 @@ const path = require('path');
 const { Segmenter } = require('./lib/vad');
 const { pcm16ToWav } = require('./lib/wav');
 const protocol = require('./lib/whisper-protocol');
+const parakeet = require('./parakeet-stt');
 
 const EXE = process.platform === 'win32' ? 'whisper-server.exe' : 'whisper-server';
 const SAMPLE_RATE = 16000;
@@ -124,7 +125,12 @@ class WhisperServer {
 /// The engine: sessions (one per audio stream), the shared server, the queue.
 /// `transcribe(wav, { language })` can be injected (tests); otherwise a
 /// WhisperServer is started lazily for `modelPath`.
-function createEngine({ transcribe: injected = null, serverFactory = (o) => new WhisperServer(o), log = () => {}, idleStopMs = 60000 } = {}) {
+/// A model path is a whisper.cpp ggml file or a Parakeet (sherpa-onnx) folder.
+function defaultServerFactory(o) {
+  return parakeet.isParakeetModel(o.model) ? new parakeet.ParakeetServer(o) : new WhisperServer(o);
+}
+
+function createEngine({ transcribe: injected = null, serverFactory = defaultServerFactory, log = () => {}, idleStopMs = 60000 } = {}) {
   const sessions = new Map();
   let server = null; // { model, instance, ready: Promise }
   let queue = Promise.resolve();
@@ -137,7 +143,7 @@ function createEngine({ transcribe: injected = null, serverFactory = (o) => new 
     if (server && server.model === model && !server.instance.exited) return server.ready;
     if (server) server.instance.stop();
     const bin = binaryPath();
-    if (!bin) return Promise.reject(new Error(NOT_BUILT));
+    if (!bin && !parakeet.isParakeetModel(model)) return Promise.reject(new Error(NOT_BUILT));
     const instance = serverFactory({ bin, model, log });
     server = { model, instance, ready: instance.start() };
     server.ready.catch(() => { if (server && server.instance === instance) server = null; });
@@ -255,5 +261,6 @@ function toBytes(buf) {
 const engine = createEngine({ log: (m) => console.log(`[whisper] ${m}`) });
 
 module.exports = {
+  defaultServerFactory,
   ...engine, createEngine, WhisperServer, binaryPath, isAvailable, defaultThreads, NOT_BUILT,
 };
