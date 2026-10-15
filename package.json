@@ -1,6 +1,6 @@
 {
   "name": "callrec",
-  "version": "0.2.0-rc.1",
+  "version": "0.3.0-rc.1",
   "private": true,
   "description": "Desktop meeting recorder: system audio + mic, live on-device transcript, folder per meeting.",
   "license": "MIT",
@@ -11,7 +11,7 @@
     "build:stt": "bash native/stt/build.sh",
     "build:whisper": "node scripts/build-whisper.js",
     "fetch:model": "node scripts/fetch-model.js",
-    "bench": "node scripts/bench-whisper.js",
+    "bench": "node scripts/bench.js",
     "smoke": "node scripts/smoke.js",
     "dist": "bash native/stt/build.sh && node scripts/build-whisper.js && electron-builder --mac --publish never",
     "dist:mac": "electron-builder --mac --publish never",
@@ -33,6 +33,9 @@
       "src/**/*",
       "package.json",
       "LICENSE"
+    ],
+    "asarUnpack": [
+      "node_modules/sherpa-onnx-*/**"
     ],
     "extraResources": [
       {

@@ -26,14 +26,21 @@ jobs:
       - run: npm ci
       - uses: ./.github/actions/whisper
         with:
-          models: base-q5_1 small-q5_1 large-v3-turbo-q5_0
-      - name: npm test (Whisper tests required, not skipped)
+          models: base-q5_1 small-q5_1 large-v3-turbo-q5_0 large-v3-q5_0 parakeet-tdt-0.6b-v3
+      - name: npm test (Whisper + Parakeet tests required, not skipped)
         run: npm test
         env:
           CALLREC_REQUIRE_WHISPER: '1'
-      - name: Whisper benchmark on this runner
+          CALLREC_REQUIRE_PARAKEET: '1'
+      - name: Model benchmark on this runner (WER + RTF)
         shell: bash
-        run: npm run --silent bench | tee -a "$GITHUB_STEP_SUMMARY"
+        run: npm run --silent bench -- --json bench-${{ matrix.os }}.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-${{ matrix.os }}
+          path: bench-${{ matrix.os }}.json
+          if-no-files-found: ignore
 
   windows-smoke:
     name: Windows packaged-app smoke

@@ -1,8 +1,8 @@
 name: whisper.cpp + models
-description: Build (or restore) vendor/whisper/whisper-server and fetch the Whisper models into vendor/models.
+description: Build (or restore) vendor/whisper/whisper-server and fetch catalogue models (Whisper, Parakeet) into vendor/models.
 inputs:
   models:
-    description: Space-separated catalogue model ids (src/lib/whisper-models.js)
+    description: Space-separated catalogue model ids (src/lib/model-catalog.js)
     default: small-q5_1
 runs:
   using: composite
@@ -21,7 +21,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: vendor/models
-        key: whisper-models-${{ inputs.models }}-${{ hashFiles('src/lib/whisper-models.js') }}
+        key: models-${{ inputs.models }}-${{ hashFiles('src/lib/whisper-models.js', 'src/lib/parakeet-models.js') }}
     - name: Fetch models (sha256-verified)
       shell: bash
       run: for m in ${{ inputs.models }}; do node scripts/fetch-model.js "$m"; done
