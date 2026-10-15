@@ -451,6 +451,7 @@ async function refreshPermissions() {
   });
   checkEngineModel(els.engine.value, els.language.value);
   api.on('toggle-recording', toggle);
+  api.on('stop-recording', () => { if (session) stop(); });
   const showSettings = (open) => {
     els.settings.hidden = !open;
     if (!open) return;

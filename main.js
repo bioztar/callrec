@@ -6,7 +6,7 @@
 
 const {
   app, BrowserWindow, ipcMain, Menu, dialog, shell, session, desktopCapturer,
-  globalShortcut, safeStorage, systemPreferences, net,
+  globalShortcut, safeStorage, systemPreferences, net, Tray, nativeImage, Notification,
 } = require('electron');
 const path = require('path');
 const os = require('os');
@@ -16,6 +16,7 @@ const nativeStt = require('./src/native-stt');
 const whisperStt = require('./src/whisper-stt');
 const whisperModels = require('./src/lib/whisper-models');
 const { createDownloadManager } = require('./src/lib/model-downloads');
+const trayLib = require('./src/lib/tray');
 const platform = require('./src/lib/platform');
 const { createDisplayMediaHandler } = require('./src/lib/display-media');
 const { createSettings } = require('./src/lib/settings');
@@ -90,6 +91,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: false, // keeps recording at full rate while hidden in the tray
     },
   });
   win.loadFile(path.join(__dirname, 'src', 'renderer', 'index.html'));
@@ -113,8 +115,69 @@ function createWindow() {
       setTimeout(quitWhenStopped, 1500 + AUTORUN_SEC * 1000 + 3000);
     });
   }
-  // Close button / red traffic light quits (desktop-app-ux rule 4).
-  win.on('close', () => app.quit());
+  // Windows: ✕ hides to the tray (Vitaly's choice for this app); Quit is in the tray menu.
+  // macOS: the red traffic light still quits.
+  win.on('close', (event) => { if (closePolicy.onClose(event, win) === 'quit' && IS_MAC) app.quit(); });
+}
+
+// ---- tray -------------------------------------------------------------------
+
+let trayCtl = null;
+let closePolicy = null;
+let finalising = null; // 0..1 while the quality pass runs, else null
+
+function notify(message) {
+  if (process.platform === 'win32' && trayCtl) { trayCtl.balloon('callrec', message); return; }
+  if (Notification.isSupported()) new Notification({ title: 'callrec', body: message }).show();
+}
+
+function trayState() {
+  return {
+    recording: Boolean(writer),
+    elapsedSec: writer ? (Date.now() - startedAtMs) / 1000 : 0,
+    finalising,
+    shortcut: settings.get().shortcut,
+  };
+}
+
+function openRecordingsFolder() {
+  const root = currentSettings().outputRoot;
+  fs.mkdirSync(root, { recursive: true });
+  shell.openPath(root);
+}
+
+/// Quit for real: an active recording is stopped by the renderer first (live
+/// transcript drained, files closed), then the app exits.
+function requestQuit() {
+  if (closePolicy.quitting) return;
+  closePolicy.setQuitting();
+  trayLib.quitCleanly({
+    isRecording: () => Boolean(writer),
+    stopRecording: () => { if (win && !win.isDestroyed()) win.webContents.send('stop-recording'); },
+    forceFinish: finishSession,
+    quit: () => app.quit(),
+  });
+}
+
+function createTray() {
+  closePolicy = trayLib.createCloseToTray({
+    platform: process.platform,
+    hintShown: settings.get().trayHintShown,
+    markHintShown: () => settings.set({ trayHintShown: true }),
+    notify,
+  });
+  try {
+    trayCtl = trayLib.createTrayController({
+      Tray, Menu, nativeImage,
+      platform: process.platform,
+      getState: trayState,
+      actions: { show: showWindow, toggle: toggleRecording, openFolder: openRecordingsFolder, quit: requestQuit },
+    });
+    setInterval(() => trayCtl.refresh(), 1000).unref();
+  } catch (err) {
+    console.error(`tray unavailable: ${err.message}`); // never strand a hidden window without a tray
+    closePolicy = trayLib.createCloseToTray({ platform: 'darwin', hintShown: true, markHintShown() {}, notify });
+  }
 }
 
 // Grant getDisplayMedia({ audio: 'loopback' }) → system audio, no virtual driver
@@ -145,7 +208,7 @@ function installMenu() {
   if (!IS_MAC) {
     // Windows: File / Recording / Edit / Help on the native menu bar (Alt shows it).
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: '&File', submenu: [{ label: 'Settings…', accelerator: 'Ctrl+,', click: openSettings }, { type: 'separator' }, { role: 'quit' }] },
+      { label: '&File', submenu: [{ label: 'Settings…', accelerator: 'Ctrl+,', click: openSettings }, { type: 'separator' }, { label: 'Quit', accelerator: 'Ctrl+Q', click: () => requestQuit() }] },
       { label: '&Recording', submenu: [{ label: 'Start / Stop Recording', click: toggleRecording }] },
       { role: 'editMenu' },
       { label: '&Help', submenu: [{ label: 'About callrec', click: () => dialog.showMessageBox(win, { message: `callrec ${app.getVersion()}`, detail: 'MIT licence. https://github.com/bioztar/callrec' }) }] },
@@ -380,14 +443,20 @@ app.whenReady().then(() => {
   wireIpc();
   installMenu();
   registerShortcut(settings.get().shortcut);
+  if (process.platform === 'win32') app.setAppUserModelId('com.pro7ocol.callrec');
+  createTray();
   createWindow();
   // Dock / taskbar click restores from any state (desktop-app-ux rule 2).
   app.on('activate', showWindow);
 });
 
+// Windows hides instead of closing, so this only runs when quitting (or on macOS).
 app.on('window-all-closed', () => app.quit());
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
+  // File › Quit / Ctrl+Q / OS shutdown with a meeting running: stop it cleanly first.
+  if (writer && closePolicy && !closePolicy.quitting) { event.preventDefault(); requestQuit(); return; }
+  if (closePolicy) closePolicy.setQuitting();
   // Audio + finals are already on disk; just stamp the final duration.
   finishSession();
   nativeStt.stopAll();

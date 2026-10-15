@@ -28,7 +28,7 @@ contextBridge.exposeInMainWorld('callrec', {
   sttChunk: (id, buf) => ipcRenderer.send('stt:chunk', id, buf),
   sttStop: (id) => ipcRenderer.send('stt:stop', id),
   on: (channel, fn) => {
-    const allowed = ['stt:event', 'toggle-recording', 'open-settings', 'model:progress'];
+    const allowed = ['stt:event', 'toggle-recording', 'stop-recording', 'open-settings', 'model:progress'];
     if (allowed.includes(channel)) ipcRenderer.on(channel, (_e, ...args) => fn(...args));
   },
 });
