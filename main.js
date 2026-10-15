@@ -15,6 +15,8 @@ const fs = require('fs');
 const nativeStt = require('./src/native-stt');
 const whisperStt = require('./src/whisper-stt');
 const whisperModels = require('./src/lib/whisper-models');
+const catalog = require('./src/lib/model-catalog');
+const parakeetStt = require('./src/parakeet-stt');
 const { createDownloadManager } = require('./src/lib/model-downloads');
 const trayLib = require('./src/lib/tray');
 const platform = require('./src/lib/platform');
@@ -47,13 +49,19 @@ function defaultRoot() { return path.join(os.homedir(), 'Documents', 'callrec');
 
 function whisperDir() { return whisperModels.modelsDir(app.getPath('userData')); }
 
-function whisperStatus(s = settings.get()) {
-  return whisperModels.status({ dir: whisperDir(), id: s.whisperModel, chosenPath: s.whisperModelPath });
+/// Status of the Live (default) or Final model. Only a hand-picked Whisper
+/// file overrides the live catalogue choice.
+function whisperStatus(s = settings.get(), role = 'live') {
+  const m = catalog.migrate(s);
+  const id = role === 'final' ? m.finalModel : m.liveModel;
+  return { ...catalog.status({ dir: whisperDir(), id, chosenPath: role === 'live' ? s.whisperModelPath : '' }), role };
 }
+
+function onDeviceAvailable() { return whisperStt.isAvailable() || parakeetStt.isAvailable(); }
 
 function currentSettings() {
   const s = settings.get();
-  const whisperAvailable = whisperStt.isAvailable();
+  const whisperAvailable = onDeviceAvailable();
   return {
     ...s,
     engine: platform.effectiveEngine(s.engine, process.platform, { whisperAvailable }),
@@ -62,7 +70,9 @@ function currentSettings() {
     engines: platform.engines(process.platform, { whisperAvailable }),
     nativeAvailable: IS_MAC && nativeStt.isAvailable(),
     whisperAvailable,
-    whisperModels: Object.entries(whisperModels.MODELS).map(([id, m]) => ({ id, label: m.label })),
+    ...catalog.migrate(s),
+    liveModels: catalog.list({ role: 'live' }),
+    finalModels: catalog.list({ role: 'final' }),
     whisperModelsDir: whisperDir(),
   };
 }
@@ -280,8 +290,8 @@ function wireIpc() {
   // Always the selected model unless that exact file is installed; a click on the
   // running download rejoins it; another model replaces it; Cancel aborts it.
   const whisperDownloads = createDownloadManager({
-    isInstalled: (id) => whisperModels.status({ dir: whisperDir(), id }).installed,
-    start: ({ id, signal, onProgress }) => whisperModels.download({
+    isInstalled: (id) => catalog.status({ dir: whisperDir(), id }).installed,
+    start: ({ id, signal, onProgress }) => catalog.download({
       id,
       dir: whisperDir(),
       signal,
@@ -290,25 +300,28 @@ function wireIpc() {
     }),
     onProgress: ({ id, fraction }) => progress({ engine: 'whisper', id, fraction }),
   });
-  ipcMain.handle('whisper:status', () => ({ ...whisperStatus(), downloading: whisperDownloads.current() }));
-  ipcMain.handle('whisper:download', async (_e, id) => {
-    const modelId = whisperModels.MODELS[id] ? id : settings.get().whisperModel;
+  const roleKey = (role) => (role === 'final' ? 'finalModel' : 'liveModel');
+  ipcMain.handle('whisper:status', (_e, role) => ({ ...whisperStatus(settings.get(), role), downloading: whisperDownloads.current() }));
+  ipcMain.handle('whisper:download', async (_e, id, role) => {
+    const modelId = catalog.runtimeOf(id) ? id : whisperStatus(settings.get(), role).id;
     const job = whisperDownloads.request(modelId);
     const res = await job.promise;
-    if (res.ok) settings.set({ whisperModel: modelId, whisperModelPath: '' });
+    if (res.ok) settings.set({ [roleKey(role)]: modelId, ...(role === 'final' ? {} : { whisperModelPath: '' }) });
     return { ...res, id: modelId };
   });
   ipcMain.handle('whisper:cancel', () => whisperDownloads.cancel());
-  ipcMain.handle('whisper:choose', async () => {
+  ipcMain.handle('whisper:choose', async (_e, role) => {
+    const { id } = whisperStatus(settings.get(), role);
+    const parakeet = catalog.runtimeOf(id) === 'parakeet';
     const pick = await dialog.showOpenDialog(win, {
-      title: 'Choose a Whisper model file (ggml-*.bin)',
+      title: parakeet ? 'Choose encoder.int8.onnx (decoder, joiner and tokens.txt must be next to it)' : 'Choose a Whisper model file (ggml-*.bin)',
       properties: ['openFile'],
-      filters: [{ name: 'whisper.cpp model', extensions: ['bin'] }],
+      filters: [parakeet ? { name: 'Parakeet model', extensions: ['onnx', 'txt'] } : { name: 'whisper.cpp model', extensions: ['bin'] }],
     });
     if (pick.canceled || !pick.filePaths[0]) return { canceled: true };
-    const res = await whisperModels.importFile(pick.filePaths[0], whisperDir());
-    if (res.ok) settings.set({ whisperModelPath: res.path });
-    return res.ok ? { ...res, status: whisperStatus() } : res;
+    const res = await catalog.importFile(pick.filePaths[0], whisperDir(), id);
+    if (res.ok && !parakeet && role !== 'final') settings.set({ whisperModelPath: res.path });
+    return res.ok ? { ...res, status: whisperStatus(settings.get(), role) } : res;
   });
   ipcMain.handle('whisper:openDir', () => {
     fs.mkdirSync(whisperDir(), { recursive: true });
@@ -432,7 +445,7 @@ app.whenReady().then(() => {
   if (!app.hasSingleInstanceLock()) return;
   settings = createSettings({
     file: path.join(app.getPath('userData'), 'settings.json'),
-    defaults: { ...platform.settingsDefaults(process.platform), whisperModel: whisperModels.recommendedModel(require('os').cpus().length), whisperModelPath: '' },
+    defaults: { ...platform.settingsDefaults(process.platform), whisperModelPath: '' },
     crypto: {
       available: () => safeStorage.isEncryptionAvailable(),
       encrypt: (s) => safeStorage.encryptString(s),

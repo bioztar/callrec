@@ -4,7 +4,7 @@
 
 const ENGINE_LABELS = {
   native: 'Native Mac (on-device, free)',
-  whisper: 'Whisper (on-device, free)',
+  whisper: 'On-device (free)',
   deepgram: 'Deepgram (cloud, needs key)',
 };
 

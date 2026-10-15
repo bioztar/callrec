@@ -97,7 +97,7 @@ function makeMeter(ctx, stream, el) {
 }
 
 // ---- on-device model card (download with progress / Dictation instructions) ----
-const model = { language: null, engine: null, busy: false, downloadingId: null, fraction: 0 };
+const model = { language: null, engine: null, busy: false, downloadingId: null, fraction: 0, role: 'live' };
 const modelEls = {
   card: $('modelCard'), title: $('modelTitle'), text: $('modelText'), btn: $('modelDownload'),
   dict: $('modelDictation'), barWrap: $('modelBarWrap'), bar: $('modelBar'), pct: $('modelPct'),
@@ -107,7 +107,7 @@ const mb = (bytes) => `${Math.round(bytes / 1e6)} MB`;
 
 /// Whisper flavour of the model card: download on first use, or a file placed by hand.
 async function checkWhisper() {
-  const st = await api.whisperStatus();
+  const st = await api.whisperStatus('live');
   if (!model.busy) {
     $('whisperState').textContent = st.installed
       ? `${st.message} — ${st.path}`
@@ -116,7 +116,8 @@ async function checkWhisper() {
   $('setWhisperModel').value = st.id;
   if (st.ready) { if (model.engine === 'whisper') modelEls.card.hidden = true; return true; }
   model.engine = 'whisper';
-  modelEls.title.textContent = 'Whisper speech model is not installed';
+  if (!model.busy) model.role = 'live';
+  modelEls.title.textContent = `Speech model ${st.wanted} is not installed`;
   modelEls.text.textContent = `One-time download of ${st.expected} (${mb(st.bytes)}) from huggingface.co. `
     + 'Audio never leaves this computer. If the download is blocked (company proxy), fetch the file on another '
     + 'network and use "Choose model file…", or copy it into the models folder.';
@@ -132,7 +133,7 @@ async function checkWhisper() {
 }
 
 async function chooseWhisperFile() {
-  const res = await api.whisperChoose();
+  const res = await api.whisperChoose('live');
   if (res.canceled) return;
   if (res.error) { modelEls.text.textContent = res.error; $('whisperState').textContent = res.error; return; }
   setStatus(`Whisper model ${res.name} installed. Ready.`, 'idle');
@@ -177,14 +178,14 @@ function showDownloading() {
   modelEls.barWrap.hidden = false;
   modelEls.bar.style.width = `${p}%`;
   modelEls.pct.textContent = `${p}%`;
-  $('setWhisperDownload').textContent = 'Cancel download';
+  $(model.role === 'final' ? 'setFinalDownload' : 'setWhisperDownload').textContent = 'Cancel download';
 }
 
 /// Downloads the picked model. While one runs, the same model shows its progress
 /// (never a silent no-op), a different Whisper model replaces it.
 async function downloadModel() {
   const whisper = model.engine === 'whisper';
-  const id = whisper ? $('setWhisperModel').value : null;
+  const id = whisper ? $(model.role === 'final' ? 'setFinalModel' : 'setWhisperModel').value : null;
   if (model.busy && (!whisper || id === model.downloadingId)) {
     showDownloading();
     modelEls.text.textContent = 'Download in progress — the bar shows how far it is. "Cancel download" stops it.';
@@ -196,21 +197,29 @@ async function downloadModel() {
   model.downloadingId = id;
   model.fraction = 0;
   showDownloading();
-  const res = whisper ? await api.whisperDownload(id) : await api.modelDownload(model.language || els.language.value);
+  const res = whisper ? await api.whisperDownload(id, model.role) : await api.modelDownload(model.language || els.language.value);
   if (model.busy !== token) return; // replaced by a download of another model
   model.busy = false;
   model.downloadingId = null;
   modelEls.btn.disabled = false;
   modelEls.barWrap.hidden = true;
   modelEls.pct.textContent = '';
-  $('setWhisperDownload').textContent = 'Download';
+  $('setWhisperDownload').textContent = 'Download'; $('setFinalDownload').textContent = 'Download';
   if (res.error) {
     modelEls.text.textContent = res.canceled ? 'Download canceled.' : `Download failed: ${res.error}`;
     if (whisper) { modelEls.btn.textContent = 'Download again'; $('whisperState').textContent = res.canceled ? 'Download canceled.' : res.error; }
     return;
   }
   setStatus('Speech model installed. Ready.', 'idle');
-  if (whisper) { modelEls.card.hidden = true; checkWhisper(); } else checkModel(els.language.value);
+  if (whisper) { modelEls.card.hidden = true; checkWhisper(); checkFinal(); } else checkModel(els.language.value);
+}
+
+/// Final model line in Settings (the quality pass after Stop).
+async function checkFinal() {
+  const st = await api.whisperStatus('final');
+  $('setFinalModel').value = st.id;
+  if (!(model.busy && model.role === 'final')) $('finalState').textContent = st.installed ? `${st.message} — ${st.path}` : `${st.message} — the recording is kept until it is installed.`;
+  return st;
 }
 
 function cancelDownload() {
@@ -363,7 +372,9 @@ function applySettings(s) {
   document.body.classList.add(`platform-${s.platform}`);
   fillSelect(els.engine, s.engines);
   fillSelect($('setEngine'), s.engines);
-  fillSelect($('setWhisperModel'), s.whisperModels);
+  fillSelect($('setWhisperModel'), s.liveModels);
+  fillSelect($('setFinalModel'), s.finalModels);
+  $('setFinalModel').value = s.finalModel;
   const hasWhisper = s.engines.some((e) => e.id === 'whisper');
   $('whisperSettings').hidden = !hasWhisper;
   $('nativeModelRow').hidden = !s.engines.some((e) => e.id === 'native');
@@ -429,13 +440,30 @@ async function refreshPermissions() {
   modelEls.openDir.addEventListener('click', () => api.whisperOpenDir());
   $('setWhisperChoose').addEventListener('click', chooseWhisperFile);
   $('setWhisperOpenDir').addEventListener('click', () => api.whisperOpenDir());
-  $('setWhisperModel').addEventListener('change', async (e) => { await saveSetting({ whisperModel: e.target.value }); checkWhisper(); });
+  $('setWhisperModel').addEventListener('change', async (e) => { await saveSetting({ liveModel: e.target.value, whisperModelPath: '' }); checkWhisper(); });
+  $('setFinalModel').addEventListener('change', async (e) => { await saveSetting({ finalModel: e.target.value }); checkFinal(); });
+  $('setFinalChoose').addEventListener('click', async () => {
+    const res = await api.whisperChoose('final');
+    if (res.error) $('finalState').textContent = res.error; else if (!res.canceled) checkFinal();
+  });
+  $('setFinalDownload').addEventListener('click', async () => {
+    model.engine = 'whisper';
+    const id = $('setFinalModel').value;
+    if (model.busy && id === model.downloadingId) { cancelDownload(); return; }
+    await saveSetting({ finalModel: id });
+    const st = await checkFinal();
+    if (st.installed) { $('finalState').textContent = `${st.message} — already installed.`; return; }
+    model.role = 'final';
+    modelEls.card.scrollIntoView({ block: 'start' });
+    downloadModel();
+  });
   $('setWhisperDownload').addEventListener('click', async () => {
     model.engine = 'whisper';
     const id = $('setWhisperModel').value;
     if (model.busy && id === model.downloadingId) { cancelDownload(); return; }
-    await saveSetting({ whisperModel: id, whisperModelPath: '' });
-    const st = await api.whisperStatus();
+    await saveSetting({ liveModel: id, whisperModelPath: '' });
+    model.role = 'live';
+    const st = await api.whisperStatus('live');
     await checkWhisper();
     if (st.installed) { $('whisperState').textContent = `${st.message} — already installed.`; return; }
     modelEls.card.scrollIntoView({ block: 'start' });
@@ -457,7 +485,7 @@ async function refreshPermissions() {
     if (!open) return;
     els.settings.scrollIntoView({ block: 'start' });
     if (settings.engines.some((e) => e.id === 'native')) checkModel('es');
-    if (settings.engines.some((e) => e.id === 'whisper')) checkWhisper();
+    if (settings.engines.some((e) => e.id === 'whisper')) { checkWhisper(); checkFinal(); }
   };
   api.on('open-settings', () => showSettings(true));
   $('settingsBtn').addEventListener('click', () => showSettings(els.settings.hidden));
