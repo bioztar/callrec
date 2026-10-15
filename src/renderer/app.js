@@ -263,6 +263,7 @@ async function start() {
   const utt = {}; // per speaker: start second of the in-progress utterance
   const handlers = (speaker) => ({
     label: LABEL[speaker],
+    onPcm: (buf) => api.channelPcm(speaker, buf, Math.max(0, now() - buf.byteLength / 32000)),
     onStatus: (m) => { console.error(`[stt] ${m}`); setStatus(m, 'error'); },
     onPartial: (text) => {
       if (text && utt[speaker] === undefined) utt[speaker] = now();
@@ -480,6 +481,13 @@ async function refreshPermissions() {
   checkEngineModel(els.engine.value, els.language.value);
   api.on('toggle-recording', toggle);
   api.on('stop-recording', () => { if (session) stop(); });
+// Quality pass after Stop (main process): progress, then the final transcript.
+api.on('final:state', (st) => {
+  if (session) return;
+  if (st.fraction != null) setStatus(`Finalising transcript… ${Math.round(st.fraction * 100)}%`, 'live');
+  else if (st.done) setStatus(`Final transcript ready → ${st.dir}`, 'idle');
+  else if (st.error) setStatus(`Final pass failed (${st.error}); the live draft is kept in ${st.dir}`, 'error');
+});
   const showSettings = (open) => {
     els.settings.hidden = !open;
     if (!open) return;

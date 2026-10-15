@@ -16,6 +16,8 @@ const nativeStt = require('./src/native-stt');
 const whisperStt = require('./src/whisper-stt');
 const whisperModels = require('./src/lib/whisper-models');
 const catalog = require('./src/lib/model-catalog');
+const { ChannelRecorder } = require('./src/lib/channel-audio');
+const finalPass = require('./src/lib/final-pass');
 const parakeetStt = require('./src/parakeet-stt');
 const { createDownloadManager } = require('./src/lib/model-downloads');
 const trayLib = require('./src/lib/tray');
@@ -43,6 +45,10 @@ let settings = null;
 let writer = null;
 let startedAtMs = 0;
 let lastSession = null; // summary of the last finished meeting (autorun report)
+let channels = null; // per-channel audio of the running meeting, for the final pass
+let sessionLanguage = 'es';
+let finalQueue = null;
+let finalServer = null;
 const autorunLog = [];
 
 function defaultRoot() { return path.join(os.homedir(), 'Documents', 'callrec'); }
@@ -119,7 +125,8 @@ function createWindow() {
       const drainSec = Number(process.env.CALLREC_AUTORUN_DRAIN_SEC) || 60;
       const deadline = Date.now() + 1500 + AUTORUN_SEC * 1000 + drainSec * 1000;
       const quitWhenStopped = () => {
-        if ((lastSession && !writer) || Date.now() > deadline) app.quit();
+        const finalDone = !lastSession || lastSession.final !== 'pending';
+        if ((lastSession && !writer && finalDone) || Date.now() > deadline) app.quit();
         else setTimeout(quitWhenStopped, 500);
       };
       setTimeout(quitWhenStopped, 1500 + AUTORUN_SEC * 1000 + 3000);
@@ -307,6 +314,7 @@ function wireIpc() {
     const job = whisperDownloads.request(modelId);
     const res = await job.promise;
     if (res.ok) settings.set({ [roleKey(role)]: modelId, ...(role === 'final' ? {} : { whisperModelPath: '' }) });
+    if (res.ok && finalQueue) finalQueue.kick(); // meetings waiting for the Final model
     return { ...res, id: modelId };
   });
   ipcMain.handle('whisper:cancel', () => whisperDownloads.cancel());
@@ -391,6 +399,8 @@ function wireIpc() {
       return { error: `Cannot create the meeting folder in ${s.outputRoot}: ${err.message}` };
     }
     startedAtMs = Date.now();
+    channels = new ChannelRecorder(writer.dir);
+    sessionLanguage = language;
     sttEngine = engine === 'whisper' ? whisperStt : nativeStt;
     sttModelPath = modelPath;
     return { dir: writer.dir, deepgramKey, deepgramLanguage: deepgramLanguage(language), locale, note };
@@ -398,6 +408,7 @@ function wireIpc() {
 
   ipcMain.on('session:audio', (_e, bytes) => { if (writer) writer.addAudio(bytes); });
   ipcMain.on('session:segment', (_e, seg) => { if (writer) writer.addSegment(seg); });
+  ipcMain.on('session:pcm', (_e, speaker, buf, offsetSec) => { if (channels) channels.add(speaker, Buffer.from(buf), offsetSec); });
   ipcMain.handle('session:stop', () => finishSession());
 
   ipcMain.handle('shell:openFolder', (_e, dir) => shell.openPath(dir));
@@ -420,8 +431,66 @@ function finishSession() {
   const w = writer;
   const dir = w.finish((Date.now() - startedAtMs) / 1000);
   writer = null;
+  const offsets = channels ? channels.close() : {};
+  channels = null;
   lastSession = { dir, segments: w.segments ? w.segments.length : null };
+  queueFinalPass(dir, w.meta, offsets);
   return dir;
+}
+
+// ---- final pass ---------------------------------------------------------------
+
+function toWindow(channel, payload) { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); }
+
+/// After Stop: the Final model re-transcribes the kept channel audio in the
+/// background. While quitting the meeting is only queued (resumes next launch).
+function queueFinalPass(dir, meta, offsets) {
+  if (!finalQueue || !Object.keys(offsets).length) return;
+  try {
+    finalPass.prepareJob(dir, { meta, offsets, language: sessionLanguage });
+  } catch (err) {
+    console.error(`[final] cannot queue ${dir}: ${err.message}`);
+    return;
+  }
+  lastSession.final = 'pending';
+  finalQueue.add(dir, { run: !(closePolicy && closePolicy.quitting) });
+}
+
+async function runFinal(dir, onProgress) {
+  const st = whisperStatus(settings.get(), 'final');
+  if (!st.ready) { const err = new Error(st.message); err.code = 'model-missing'; throw err; }
+  const server = whisperStt.defaultServerFactory({ bin: whisperStt.binaryPath(), model: st.path, log: (m) => console.error(`[final] ${m}`) });
+  finalServer = server;
+  try {
+    await server.start();
+    const label = `${st.runtime === 'parakeet' ? 'Parakeet' : 'Whisper'} ${st.short || st.name} (on-device)`;
+    return await finalPass.runFinalPass({ dir, transcriber: finalPass.serverTranscriber(server), label, onProgress });
+  } finally {
+    server.stop();
+    finalServer = null;
+  }
+}
+
+function createFinalQueue() {
+  finalQueue = finalPass.createFinalQueue({
+    file: path.join(app.getPath('userData'), 'final-queue.json'),
+    run: runFinal,
+    onState: (st) => {
+      finalising = st ? st.fraction : null;
+      if (trayCtl) trayCtl.refresh();
+      if (st) toWindow('final:state', { dir: st.dir, fraction: st.fraction });
+    },
+    onDone: (dir) => {
+      if (lastSession && lastSession.dir === dir) lastSession.final = 'done';
+      toWindow('final:state', { dir, done: true });
+      notify(`Final transcript ready — ${path.basename(dir)}`);
+    },
+    onError: (dir, err) => {
+      console.error(`[final] ${dir}: ${err.message}`);
+      if (lastSession && lastSession.dir === dir) lastSession.final = `error: ${err.message}`;
+      toWindow('final:state', { dir, error: err.message });
+    },
+  });
 }
 
 /// CALLREC_AUTORUN_REPORT=file.json: what the autorun meeting produced (CI smoke).
@@ -452,6 +521,7 @@ app.whenReady().then(() => {
       decrypt: (b) => safeStorage.decryptString(b),
     },
   });
+  createFinalQueue();
   wireDisplayMedia();
   wireIpc();
   installMenu();
@@ -461,6 +531,8 @@ app.whenReady().then(() => {
   createWindow();
   // Dock / taskbar click restores from any state (desktop-app-ux rule 2).
   app.on('activate', showWindow);
+  // Meetings whose final pass was cut short by a quit (or waited for the model).
+  setTimeout(() => finalQueue.kick(), AUTORUN_SEC > 0 ? 0 : 3000).unref();
 });
 
 // Windows hides instead of closing, so this only runs when quitting (or on macOS).
@@ -474,6 +546,7 @@ app.on('before-quit', (event) => {
   finishSession();
   nativeStt.stopAll();
   whisperStt.stopAll();
+  if (finalServer) finalServer.stop(); // the queue resumes this meeting on the next launch
   globalShortcut.unregisterAll();
   if (AUTORUN_SEC > 0) writeAutorunReport();
 });

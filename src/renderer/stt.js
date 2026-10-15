@@ -9,7 +9,8 @@
 const STT = (() => {
   // Wires a raw-PCM16/16kHz audio graph to a socket, buffering chunks captured
   // before it finishes opening and flushing them on open.
-  function wireAudioGraph(stream, ws) {
+  // `tap(pcm)` also receives every PCM16 chunk (kept on disk for the final pass).
+  function wireAudioGraph(stream, ws, tap) {
     const pending = [];
     (async () => {
       const ctx = new AudioContext();
@@ -17,6 +18,7 @@ const STT = (() => {
       const src = ctx.createMediaStreamSource(stream);
       const node = new AudioWorkletNode(ctx, 'pcm-downsampler');
       node.port.onmessage = (e) => {
+        if (tap) tap(e.data);
         // Wall-clock second of the first audio sample, so engine stream offsets map onto it.
         if (ws._audioT0 === undefined) ws._audioT0 = performance.now() / 1000 - e.data.byteLength / 32000;
         if (ws.readyState === 1) ws.send(e.data);
@@ -35,7 +37,7 @@ const STT = (() => {
   const WHISPER_DRAIN_MS = 60000; // max silence from Whisper while it finishes queued utterances
 
   // ---- Deepgram (Nova-3 websocket) ----
-  function connectDeepgram({ stream, key, language, onFinal, onPartial, onStatus, label }) {
+  function connectDeepgram({ stream, key, language, onFinal, onPartial, onStatus, label, onPcm }) {
     const url =
       'wss://api.deepgram.com/v1/listen' +
       '?model=nova-3&encoding=linear16&sample_rate=16000&channels=1' +
@@ -43,7 +45,7 @@ const STT = (() => {
       `&language=${encodeURIComponent(language)}`;
     const ws = new WebSocket(url, ['token', key]);
     ws.binaryType = 'arraybuffer';
-    wireAudioGraph(stream, ws);
+    wireAudioGraph(stream, ws, onPcm);
     // Deepgram splits one utterance into several is_final segments; only the
     // last carries speech_final. Accumulate and emit the whole utterance then.
     let seg = [];
@@ -196,9 +198,9 @@ const STT = (() => {
     }
   }
 
-  function connectNative({ stream, locale, language, engine, speaker, onFinal, onPartial, onStatus, label }) {
+  function connectNative({ stream, locale, language, engine, speaker, onFinal, onPartial, onStatus, label, onPcm }) {
     const sock = new NativeSocket({ speaker, locale, language, engine, onFinal, onPartial, onStatus, label });
-    wireAudioGraph(stream, sock);
+    wireAudioGraph(stream, sock, onPcm);
     return sock;
   }
 

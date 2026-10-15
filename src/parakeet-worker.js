@@ -37,6 +37,8 @@ function decode(buf) {
   return { text: r.text || '', tokens: r.tokens || [], timestamps: r.timestamps || [] };
 }
 
+process.on('disconnect', () => process.exit(0)); // the app quit
+
 process.on('message', (msg) => {
   try {
     if (msg.op === 'load') { load(msg.model, msg.threads); reply({ id: msg.id, ok: true }); return; }

@@ -33,7 +33,7 @@ fs.copyFileSync(model, path.join(userData, 'models', path.basename(model)));
 const { MODELS } = require('../src/lib/whisper-models');
 const whisperModel = Object.keys(MODELS).find((id) => MODELS[id].file === path.basename(model));
 if (!whisperModel) { console.error(`smoke: ${model} is not a catalogue model`); process.exit(2); }
-fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ outputRoot: out, engine: 'whisper', language: 'es', whisperModel }));
+fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ outputRoot: out, engine: 'whisper', language: 'es', liveModel: whisperModel, finalModel: whisperModel }));
 
 const env = {
   ...process.env,
@@ -61,11 +61,15 @@ child.on('exit', (code, signal) => {
   if (!fs.existsSync(report)) fail('no autorun report (app quit before finishing the meeting?)');
   const r = JSON.parse(fs.readFileSync(report, 'utf8'));
   if (!r.dir) fail(`no meeting folder; renderer log:\n${(r.log || []).join('\n')}`);
-  for (const f of ['audio.webm', 'transcript.md', 'transcript.json']) {
+  // Two-pass: the final pass ran over the kept channel audio, the live draft is kept.
+  if (r.final !== 'done') fail(`final pass did not finish (${r.final})`);
+  for (const f of ['audio.webm', 'transcript.md', 'transcript.json', 'transcript.draft.md', 'transcript.draft.json']) {
     const p = path.join(r.dir, f);
     if (!fs.existsSync(p) || !fs.statSync(p).size) fail(`${f} missing or empty`);
   }
   const t = JSON.parse(fs.readFileSync(path.join(r.dir, 'transcript.json'), 'utf8'));
+  if (!/final pass/.test(t.engine)) fail(`transcript.json is not the final pass (engine ${t.engine})`);
+  if (fs.existsSync(path.join(r.dir, 'audio-me.wav'))) fail('channel audio not removed after the final pass');
   const segs = t.segments || [];
   const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const said = (who) => norm(segs.filter((s) => s.speaker === who).map((s) => s.text).join(' '));

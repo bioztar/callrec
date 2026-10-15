@@ -130,7 +130,8 @@ function createFinalQueue({ file, run, onState = () => {}, onDone = () => {}, on
         } catch (err) {
           failed.add(dir); // stays queued: retried on the next launch or kick()
           const now = readJob(dir);
-          if (now) writeJob(dir, { ...now, status: 'pending', error: err.message });
+          // A missing Final model is not the meeting's fault: it does not use up an attempt.
+          if (now) writeJob(dir, { ...now, status: 'pending', error: err.message, attempts: err.code === 'model-missing' ? job.attempts || 0 : now.attempts });
           onError(dir, err);
         }
       }
@@ -140,7 +141,8 @@ function createFinalQueue({ file, run, onState = () => {}, onDone = () => {}, on
   }
 
   return {
-    add(dir) { if (!dirs.includes(dir)) { dirs.push(dir); save(); } return pump(); },
+    /// `run: false` only persists it (while quitting).
+    add(dir, { run = true } = {}) { if (!dirs.includes(dir)) { dirs.push(dir); save(); } return run ? pump() : Promise.resolve(); },
     /// Resume after launch / retry after the final model got installed.
     kick: pump,
     pending: () => [...dirs],
