@@ -24,9 +24,12 @@ jobs:
         run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
       - run: npm ci
       - uses: ./.github/actions/whisper
+        with:
+          models: small-q5_1 parakeet-tdt-0.6b-v3
       - run: npm test
         env:
           CALLREC_REQUIRE_WHISPER: '1'
+          CALLREC_REQUIRE_PARAKEET: '1'
       - name: Build portable .exe + .zip
         run: npm run dist:win
       - name: Virtual sound card
@@ -36,7 +39,7 @@ jobs:
         run: |
           $wav = Join-Path $env:GITHUB_WORKSPACE 'test\fixtures\english.wav'
           $player = Start-Job -ArgumentList $wav -ScriptBlock { param($f) while ($true) { (New-Object Media.SoundPlayer $f).PlaySync(); Start-Sleep -Seconds 1 } }
-          node scripts/smoke.js dist\win-unpacked\callrec.exe --seconds 25
+          node scripts/smoke.js dist\win-unpacked\callrec.exe --seconds 25 --final vendor\models\parakeet-tdt-0.6b-v3-int8
           $code = $LASTEXITCODE
           Stop-Job $player; Receive-Job $player
           exit $code
@@ -69,9 +72,12 @@ jobs:
             bash native/stt/build.sh --no-analyzer
           fi
       - uses: ./.github/actions/whisper
+        with:
+          models: small-q5_1 parakeet-tdt-0.6b-v3
       - run: npm test
         env:
           CALLREC_REQUIRE_WHISPER: '1'
+          CALLREC_REQUIRE_PARAKEET: '1'
       - name: Build unsigned .dmg
         run: npm run dist:mac
         env:

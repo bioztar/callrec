@@ -53,6 +53,8 @@ jobs:
           cache: npm
       - run: npm ci
       - uses: ./.github/actions/whisper
+        with:
+          models: small-q5_1 parakeet-tdt-0.6b-v3
       - name: Virtual sound card (runners have no audio device)
         uses: LABSN/sound-ci-helpers@v1
       - name: Package (unpacked dir, same files as the release zip)
@@ -62,7 +64,7 @@ jobs:
         run: |
           $wav = Join-Path $env:GITHUB_WORKSPACE 'test\fixtures\english.wav'
           $player = Start-Job -ArgumentList $wav -ScriptBlock { param($f) while ($true) { (New-Object Media.SoundPlayer $f).PlaySync(); Start-Sleep -Seconds 1 } }
-          node scripts/smoke.js dist\win-unpacked\callrec.exe --seconds 25
+          node scripts/smoke.js dist\win-unpacked\callrec.exe --seconds 25 --final vendor\models\parakeet-tdt-0.6b-v3-int8
           $code = $LASTEXITCODE
           Stop-Job $player; Receive-Job $player
           exit $code

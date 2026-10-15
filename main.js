@@ -63,6 +63,9 @@ function whisperStatus(s = settings.get(), role = 'live') {
   return { ...catalog.status({ dir: whisperDir(), id, chosenPath: role === 'live' ? s.whisperModelPath : '' }), role };
 }
 
+/// "Parakeet TDT 0.6B v3" / "Whisper small": the model file actually loaded.
+function modelLabel(st) { return st.runtime === 'parakeet' ? 'Parakeet TDT 0.6B v3' : `Whisper ${st.short}`; }
+
 function onDeviceAvailable() { return whisperStt.isAvailable() || parakeetStt.isAvailable(); }
 
 function currentSettings() {
@@ -380,13 +383,13 @@ function wireIpc() {
       const model = whisperStatus(s);
       if (!model.ready) return { error: 'No Whisper model yet.', code: 'model-missing', model };
       modelPath = model.path;
-      modelName = model.short; // the file actually loaded, not the setting id (may be a fallback)
+      modelName = modelLabel(model); // the file actually loaded, not the setting id (may be a fallback)
       locale = { es: 'es', en: 'en', mixed: 'auto (es/en per utterance)' }[language];
     } else {
       return { error: `Unknown engine "${engine}"` };
     }
     try {
-      const label = { deepgram: 'Deepgram Nova-3', native: 'Native Mac (on-device)', whisper: `Whisper ${modelName} (on-device)` }[engine];
+      const label = { deepgram: 'Deepgram Nova-3', native: 'Native Mac (on-device)', whisper: `${modelName} (on-device)` }[engine];
       const langLabel = LANGUAGES[language].label;
       writer = new SessionWriter({
         root: s.outputRoot,
@@ -463,7 +466,7 @@ async function runFinal(dir, onProgress) {
   finalServer = server;
   try {
     await server.start();
-    const label = `${st.runtime === 'parakeet' ? 'Parakeet' : 'Whisper'} ${st.short || st.name} (on-device)`;
+    const label = `${modelLabel(st)} (on-device)`;
     return await finalPass.runFinalPass({ dir, transcriber: finalPass.serverTranscriber(server), label, onProgress });
   } finally {
     server.stop();

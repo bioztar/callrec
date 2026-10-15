@@ -19,48 +19,92 @@ Get the latest build from [Releases](https://github.com/bioztar/callrec/releases
 
 Windows SmartScreen will say "Windows protected your PC" (unknown publisher). Click **More info → Run anyway**.
 
-**Speech model (first use).** callrec uses [whisper.cpp](https://github.com/ggml-org/whisper.cpp) with the
-multilingual `ggml-small-q5_1.bin` model (190 MB). The app shows a card with a **Download** button and a progress
-bar. The file is checked against a pinned SHA-256. If your network blocks the download (company proxy):
+**Speech models (first use).** callrec transcribes twice, on the device:
 
-1. On another network, download
-   <https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin>.
-2. Click **Choose model file…** in callrec. Or copy the file into the models folder,
-   `%APPDATA%\callrec\models\` (the **Open models folder** button opens it).
+- **Live model**: a draft while the call runs, line by line.
+- **Final model**: after **Stop**, re-transcribes the whole recording for a better transcript (in the background;
+  the tray tooltip and the window show *Finalising transcript… 43%*, and a notification says when it is done).
 
-On computers with fewer than 8 logical CPUs callrec picks `ggml-base-q5_1.bin` (60 MB) instead: it is less accurate
-but keeps up with live speech. If the app warns that Whisper is behind, pick a smaller model. Settings › Whisper model
-switches between base, small and `ggml-large-v3-turbo-q5_0.bin` (574 MB). Large is more accurate, but only fast enough
-on a strong CPU. Any whisper.cpp `ggml-*.bin` model works through **Choose model file…**.
+The default for both is [NVIDIA Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) (int8, 670 MB,
+25 European languages including Spanish and English, detects the language itself). It ran faster than real time
+and was as accurate as Whisper large-v3 in our benchmark (below). The app shows a card with a **Download** button
+and a progress bar; every file is checked against a pinned SHA-256. **Settings › Live model / Final model** can also
+pick a Whisper model ([whisper.cpp](https://github.com/ggml-org/whisper.cpp): base, small, large-v3-turbo, large-v3).
+Download always fetches the model you selected; if it is not there yet, Settings says which installed model is used
+in the meantime.
+
+If your network blocks the download (company proxy), get the files on another network and put them in the models
+folder, `%APPDATA%\callrec\models\` (**Open models folder** opens it), or use **Choose model file…**:
+
+- Parakeet: the four files `encoder.int8.onnx`, `decoder.int8.onnx`, `joiner.int8.onnx` and `tokens.txt` from
+  <https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/tree/2bda32ec70b097a55adaa07d9a7173915b43cc78>,
+  in one folder. Choose `encoder.int8.onnx`; the other three must sit next to it. They are copied to
+  `models\parakeet-tdt-0.6b-v3-int8\`.
+- Whisper: e.g. <https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin>. Any whisper.cpp
+  `ggml-*.bin` file works.
+
+**Tray.** callrec lives in the notification area (the icon gets a red dot while recording; the tooltip shows the
+elapsed time). Left-click shows the window. Right-click: **Start/Stop recording** (with the shortcut), **Show callrec**,
+**Open recordings folder**, **Quit**. Closing the window (✕) keeps callrec running in the tray, ready for the next
+call; **Quit** stops a running recording cleanly first. callrec does not start at login. Recording works with the
+window hidden (tray menu or shortcut).
 
 **Permissions.** Windows Settings › Privacy & security › Microphone must allow *Microphone access* and *Let
 desktop apps access your microphone*. callrec shows a button that opens that page if access is off. System audio
 needs no permission; it is captured from the default output device (speakers or headset) via WASAPI loopback.
 
 Start/stop shortcut: **Ctrl+Alt+Shift+R** (Ctrl+Shift+R is Outlook's Reply All). You can change it in Settings.
-Closing the window quits the app.
 
 ### macOS (Apple silicon)
 
 Open the `.dmg` and drag callrec to Applications. Because the app is unsigned, the first time you must right-click it and choose **Open**.
 Permissions: Microphone, Screen & System Audio Recording (for the other side) and Speech Recognition (Native engine).
 The app shows buttons that open the right System Settings panes. Shortcut: **Cmd+Shift+R**.
+macOS behaves as before (the window's close button quits); the menu bar also gets the callrec icon with the same menu.
 
 ## Engines and languages
 
 | Engine | Where | Notes |
 |---|---|---|
-| **Whisper** (whisper.cpp) | Windows default; macOS optional | On-device. Spanish, English, or *Spanish (+ English words)*, which detects the language for each utterance. |
+| **On-device** (Parakeet via sherpa-onnx, or Whisper via whisper.cpp) | Windows default; macOS optional | Spanish, English, or *Spanish (+ English words)*, which detects the language for each utterance. Live draft + final pass after Stop. |
 | **Native Mac** | macOS default | Apple's on-device engine; the Spanish model may need a one-time download, which the app offers. It cannot switch languages: the mixed setting listens in Spanish only. |
 | **Deepgram Nova-3** | both | Cloud. Needs your own API key, which Settings stores encrypted with the OS keychain (Electron `safeStorage`). Mixed = Deepgram `multi`. |
 
-Whisper runs in a local `whisper-server` process that only listens on `127.0.0.1`. callrec cuts each side's audio
-into utterances (voice-activity detection), and each line appears shortly after the speaker pauses.
+Parakeet runs in a child process; Whisper in a local `whisper-server` that only listens on `127.0.0.1`. callrec cuts
+each side's audio into utterances (voice-activity detection), and each line appears shortly after the speaker pauses.
+
+### Model benchmark
+
+`npm run bench` measures every model present in `vendor/models` on the committed fixtures (Spanish, English, mixed
+ES/EN; [test/fixtures](test/fixtures/README.md)): word error rate and real-time factor (RTF, compute time / audio time;
+below 1 is faster than real time). CI runs it on `windows-latest` and `macos-latest` (job summary). On a 4-core
+x64 cloud VM:
+
+| model | runtime | WER es | WER en | WER mixed | mean WER | RTF |
+|---|---|---|---|---|---|---|
+| **Parakeet TDT 0.6B v3** int8 | sherpa-onnx | 3.7 % | 0.0 % | 3.8 % | **2.5 %** | **0.12** |
+| Whisper small q5_1 | whisper.cpp | 11.1 % | 0.0 % | 11.5 % | 7.5 % | 0.57 |
+| Whisper large-v3-turbo q5_0 | whisper.cpp | 11.1 % | 0.0 % | 11.5 % | 7.5 % | 3.06 |
+| Whisper large-v3 q5_0 | whisper.cpp | 3.7 % | 0.0 % | 3.8 % | 2.5 % | 3.75 |
+
+The fixtures are short, so the WER spread is small; the only Spanish error left is "Hola" heard as "El".
 
 ## Output
 
 Meetings are saved to `<root>/YYYY-MM-DD HHmm <title>/`. The default root is `Documents/callrec` in your home folder. Audio chunks
 (every 3 s) and every finished transcript line are written as they arrive, so a crash keeps everything recorded so far.
+
+| File | What |
+|---|---|
+| `audio.webm` | both sides mixed (Opus), kept |
+| `transcript.md`, `transcript.json` | the final transcript once the final pass is done; until then the live draft |
+| `transcript.draft.md`, `transcript.draft.json` | the live draft, kept after the final pass |
+| `audio-me.wav`, `audio-them.wav` | each side as 16 kHz WAV (~2 MB per minute each), only until the final pass succeeds; then deleted |
+| `final-pass.json` | final-pass status |
+
+If you quit during the final pass, it resumes on the next launch; the draft is never overwritten. If the Final model
+is not installed yet, the meeting waits until it is (the WAV files stay). After three failed attempts callrec gives
+up and keeps the draft and the WAV files.
 When the mic picks up the other side through your speakers, that echo is dropped from "Me".
 
 ## Privacy
@@ -97,4 +141,4 @@ binary's relative path (e.g. `Electron.app/Contents/MacOS/Electron`) to `node_mo
 
 ## License
 
-[MIT](LICENSE). whisper.cpp is MIT-licensed and its licence ships next to the binary. Whisper models are MIT-licensed by OpenAI.
+[MIT](LICENSE). whisper.cpp is MIT-licensed and its licence ships next to the binary. Whisper models are MIT-licensed by OpenAI. sherpa-onnx is Apache-2.0. Parakeet TDT 0.6B v3 is CC-BY-4.0 by NVIDIA.
