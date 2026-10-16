@@ -1,6 +1,7 @@
 'use strict';
 
 const test = require('node:test');
+const path = require('path');
 const assert = require('node:assert/strict');
 const fixtures = require('./fixtures/teams-titles.json');
 const { parseTitle, callName, stripSuffix } = require('../src/lib/teams-titles');
@@ -40,7 +41,7 @@ test('folder name is Windows-safe, capped, collision-suffixed', () => {
   assert.equal(callFolderName(d, 'a<b>c:d"e/f\\g|h?i*j. . '), '2026-10-16 09.05 — a b c d e f g h i j');
   assert.equal(callFolderName(d, '...'), '2026-10-16 09.05 — Teams call');
   assert.ok(callFolderName(d, 'x'.repeat(300)).length <= 16 + 3 + 60);
-  const taken = new Set(['/r/n', '/r/n (2)']);
+  const taken = new Set([path.join('/r', 'n'), path.join('/r', 'n (2)')]);
   assert.equal(uniqueDir('/r', 'n', (p) => taken.has(p)).replace(/\\/g, '/'), '/r/n (3)');
 });
 
