@@ -53,6 +53,30 @@ function serverTranscriber(server) {
 
 /// Runs the pass for one meeting folder. `transcriber.transcribe(seg, { language })`
 /// → text | null. `label` names the final model in the transcript header.
+/// Transcriber that follows a CPU level while it runs: before each segment it
+/// re-spawns the engine if `threads()` changed (the pass decodes segment by
+/// segment, so nothing is lost or decoded twice).
+function adaptiveTranscriber({ create, threads, log = () => {} }) {
+  let server = null;
+  let at = 0;
+  let stopped = false;
+  async function ensure() {
+    if (stopped) throw new Error('final pass stopped');
+    const want = threads();
+    if (server && at === want) return server;
+    if (server) { log(`final pass: ${at} → ${want} threads`); server.stop(); }
+    server = create(want);
+    at = want;
+    await server.start();
+    return server;
+  }
+  return {
+    get threads() { return at; },
+    async transcribe(seg, opts) { return serverTranscriber(await ensure()).transcribe(seg, opts); },
+    stop() { stopped = true; if (server) server.stop(); server = null; },
+  };
+}
+
 async function runFinalPass({ dir, transcriber, label, onProgress = () => {} }) {
   const job = readJob(dir);
   if (!job) throw new Error(`no ${JOB} in ${dir}`);
@@ -150,4 +174,4 @@ function createFinalQueue({ file, run, onState = () => {}, onDone = () => {}, on
   };
 }
 
-module.exports = { prepareJob, runFinalPass, serverTranscriber, createFinalQueue, readJob, utterances, keepDraft, JOB };
+module.exports = { prepareJob, runFinalPass, serverTranscriber, createFinalQueue, readJob, utterances, keepDraft, JOB, adaptiveTranscriber };

@@ -23,7 +23,8 @@ Windows SmartScreen will say "Windows protected your PC" (unknown publisher). Cl
 
 - **Live model**: a draft while the call runs, line by line.
 - **Final model**: after **Stop**, re-transcribes the whole recording for a better transcript (in the background;
-  the tray tooltip and the window show *Finalising transcript… 43%*, and a notification says when it is done).
+  the tray tooltip shows *finalising 43% · CPU 100%*, the window *Finalising transcript… 43%*, and a notification
+  says when it is done).
 
 The default for both is [NVIDIA Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) (int8, 670 MB,
 25 European languages including Spanish and English, detects the language itself). It ran faster than real time
@@ -49,6 +50,12 @@ elapsed time). Left-click shows the window. Right-click: **Start/Stop recording*
 call; **Quit** stops a running recording cleanly first. Windows shutdown or sign-out never waits on callrec: a
 running recording is closed on the spot and its final pass runs on the next launch. callrec does not start at login. Recording works with the
 window hidden (tray menu or shortcut).
+
+**Finalising speed.** The tray menu's **Finalising speed** (20 % / 40 % / 60 % / 80 % / 100 % (max), default 100 %)
+sets how much of the CPU the final pass may use; a change applies within seconds, mid-pass, and the final pass
+always runs at below-normal priority so the apps you are using come first. Starting a new recording drops the
+final pass to 20 % so the live draft keeps up, and Stop returns to your chosen level (a level you pick during the
+call applies right away, until Stop).
 
 **Permissions.** Windows Settings › Privacy & security › Microphone must allow *Microphone access* and *Let
 desktop apps access your microphone*. callrec shows a button that opens that page if access is off. System audio

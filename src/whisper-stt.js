@@ -64,8 +64,8 @@ const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /// One whisper-server child bound to 127.0.0.1.
 class WhisperServer {
-  constructor({ bin, model, threads = defaultThreads(), log = () => {} }) {
-    this.bin = bin; this.model = model; this.threads = threads; this.log = log;
+  constructor({ bin, model, threads = defaultThreads(), lowPriority = false, log = () => {} }) {
+    this.bin = bin; this.model = model; this.threads = threads; this.lowPriority = lowPriority; this.log = log;
     this.child = null; this.port = 0; this.exited = null; this.stderr = '';
   }
 
@@ -74,6 +74,7 @@ class WhisperServer {
     const args = ['-m', this.model, '--host', '127.0.0.1', '--port', String(this.port),
       '-t', String(this.threads), '-l', 'auto', '-nlp'];
     this.child = spawn(this.bin, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    if (this.lowPriority && this.child.pid) parakeet.lowerPriority(this.child.pid, this.log);
     const keep = (d) => { this.stderr = (this.stderr + d.toString()).slice(-4000); };
     this.child.stdout.on('data', keep);
     this.child.stderr.on('data', keep);

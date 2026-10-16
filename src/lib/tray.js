@@ -1,5 +1,7 @@
 'use strict';
 
+const { LEVELS, DEFAULT_LEVEL } = require('./cpu-dial');
+
 // Tray / menu-bar icon: pure helpers plus a controller that takes Electron's
 // Tray / Menu / nativeImage as arguments (unit-tested with mocks).
 
@@ -14,9 +16,9 @@ function clock(sec) {
 }
 
 /// "callrec — idle" / "callrec — recording 12:34" / "callrec — Finalising transcript… 43%".
-function tooltip({ recording = false, elapsedSec = 0, finalising = null } = {}) {
+function tooltip({ recording = false, elapsedSec = 0, finalising = null, cpu = null } = {}) {
   if (recording) return `callrec — recording ${clock(elapsedSec)}`;
-  if (finalising != null) return `callrec — Finalising transcript… ${Math.round(finalising * 100)}%`;
+  if (finalising != null) return `callrec — finalising ${Math.round(finalising * 100)}%${cpu ? ` · CPU ${cpu}%` : ''}`;
   return IDLE_TIP;
 }
 
@@ -32,12 +34,18 @@ function shortcutLabel(accelerator, platform) {
   }).join('+');
 }
 
-function menuTemplate({ recording = false, shortcut = '', platform = 'win32', actions }) {
+/// "Finalising speed" submenu: how much CPU the final pass may use.
+function speedMenu(cpu, pick) {
+  return LEVELS.map((p) => ({ label: p === 100 ? '100% (max)' : `${p}%`, type: 'radio', checked: p === cpu, click: () => pick(p) }));
+}
+
+function menuTemplate({ recording = false, shortcut = '', platform = 'win32', cpu = DEFAULT_LEVEL, actions }) {
   const keys = shortcutLabel(shortcut, platform);
   return [
     { label: `${recording ? 'Stop recording' : 'Start recording'}${keys ? `\t${keys}` : ''}`, click: actions.toggle },
     { label: 'Show callrec', click: actions.show },
     { label: 'Open recordings folder', click: actions.openFolder },
+    ...(actions.speed ? [{ label: 'Finalising speed', submenu: speedMenu(cpu, actions.speed) }] : []),
     { type: 'separator' },
     { label: 'Quit', click: actions.quit },
   ];
@@ -88,11 +96,11 @@ function createTrayController({ Tray, Menu, nativeImage, platform, getState, act
     const st = getState();
     const tip = tooltip(st);
     if (tip !== last.tip) tray.setToolTip(tip);
-    if (st.recording !== last.recording || st.shortcut !== last.shortcut) {
+    if (st.recording !== last.recording || st.shortcut !== last.shortcut || st.cpu !== last.cpu) {
       tray.setImage(st.recording ? icons.recording : icons.idle);
       tray.setContextMenu(Menu.buildFromTemplate(menuTemplate({ ...st, platform, actions })));
     }
-    last = { tip, recording: st.recording, shortcut: st.shortcut };
+    last = { tip, recording: st.recording, shortcut: st.shortcut, cpu: st.cpu };
   }
   // macOS opens the context menu on click by itself; Windows/Linux: left click = window.
   if (platform !== 'darwin') tray.on('click', () => actions.show());

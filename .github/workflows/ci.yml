@@ -34,7 +34,7 @@ jobs:
           CALLREC_REQUIRE_PARAKEET: '1'
       - name: Model benchmark on this runner (WER + RTF)
         shell: bash
-        run: npm run --silent bench -- --json bench-${{ matrix.os }}.json | tee -a "$GITHUB_STEP_SUMMARY"
+        run: npm run --silent bench -- --json bench-${{ matrix.os }}.json --cpu 20,100 | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

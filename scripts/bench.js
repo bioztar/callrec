@@ -5,7 +5,9 @@
 // vendor/models (Whisper ggml files, Parakeet folder) over the committed
 // fixtures, cut into utterances exactly as the final pass does. Prints WER per
 // fixture and real-time factor (inference s / audio s; < 1 = faster than real time).
-//   node scripts/bench.js [--json out.json]
+//   node scripts/bench.js [--json out.json] [--cpu 20,100]
+// --cpu also times the final-pass model at those "Finalising speed" levels
+// (below-normal priority, as in the app; 100% once more at normal priority).
 
 const fs = require('fs');
 const os = require('os');
@@ -15,6 +17,7 @@ const catalog = require('../src/lib/model-catalog');
 const { utterances, serverTranscriber } = require('../src/lib/final-pass');
 const { readWav } = require('../src/lib/wav');
 const { wer } = require('../src/lib/wer');
+const dial = require('../src/lib/cpu-dial');
 
 const FIX = path.join(__dirname, '..', 'test', 'fixtures');
 const dir = path.join(__dirname, '..', 'vendor', 'models');
@@ -27,7 +30,9 @@ const FIXTURES = [
 ];
 
 (async () => {
-  const jsonOut = process.argv.includes('--json') ? process.argv[process.argv.indexOf('--json') + 1] : '';
+  const arg = (k) => (process.argv.includes(k) ? process.argv[process.argv.indexOf(k) + 1] : '');
+  const jsonOut = arg('--json');
+  const levels = arg('--cpu').split(',').filter(Boolean).map(Number);
   const clips = FIXTURES.map((f) => ({ ...f, segs: utterances(readWav(fs.readFileSync(path.join(FIX, f.file))).samples) }));
   const audioSec = clips.reduce((n, c) => n + c.segs.reduce((m, s) => m + s.end - s.start, 0), 0);
   const rows = [];
@@ -63,9 +68,29 @@ const FIXTURES = [
     rows.push(row);
     console.log(`| ${m.short} | ${m.runtime === 'parakeet' ? 'sherpa-onnx int8' : 'whisper.cpp'} | ${pct(wers.es)} | ${pct(wers.en)} | ${pct(wers.mixed)} | **${pct(mean)}** | ${row.rtf.toFixed(2)} | ${worst.toFixed(1)} | ${load.toFixed(1)} |`);
   }
+  const speed = [];
+  const fin = catalog.status({ dir, id: catalog.FINAL_DEFAULT });
+  if (levels.length && fin.installed) {
+    console.log(`\n| final pass (${catalog.FINAL_DEFAULT}) Finalising speed | threads | priority | RTF |`);
+    console.log('|---|---|---|---|');
+    const runs = [...levels.map((l) => ({ level: l, low: true })), { level: Math.max(...levels), low: false }];
+    for (const r of runs) {
+      const threads = dial.threadsFor(r.level);
+      const srv = whisperStt.defaultServerFactory({ bin: whisperStt.binaryPath(), model: fin.path, threads, lowPriority: r.low });
+      await srv.start();
+      const tx = serverTranscriber(srv);
+      await tx.transcribe(clips[0].segs[0], { language: 'es' });
+      const t0 = Date.now();
+      for (const c of clips) for (const seg of c.segs) await tx.transcribe(seg, { language: c.lang });
+      srv.stop();
+      const row = { level: r.level, threads, priority: r.low ? 'below normal' : 'normal', rtf: (Date.now() - t0) / 1000 / audioSec };
+      speed.push(row);
+      console.log(`| ${r.level}% | ${threads} | ${row.priority} | ${row.rtf.toFixed(3)} |`);
+    }
+  }
   for (const r of rows) Object.entries(r.texts).forEach(([l, t]) => console.log(`\n- ${r.id} ${l}: ${t}`));
   const cpu = os.cpus()[0] ? os.cpus()[0].model.trim() : 'unknown CPU';
   const machine = `${cpu}, ${os.cpus().length} logical CPUs, ${whisperStt.defaultThreads()} threads, ${process.platform}-${process.arch}`;
   console.log(`\n${audioSec.toFixed(1)} s of speech in ${clips.reduce((n, c) => n + c.segs.length, 0)} utterances · ${machine}`);
-  if (jsonOut) fs.writeFileSync(jsonOut, JSON.stringify({ machine, audioSec, rows }, null, 2));
+  if (jsonOut) fs.writeFileSync(jsonOut, JSON.stringify({ machine, audioSec, rows, speed }, null, 2));
 })().catch((err) => { console.error(err.stack || err.message); process.exit(1); });

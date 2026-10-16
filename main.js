@@ -21,6 +21,7 @@ const finalPass = require('./src/lib/final-pass');
 const parakeetStt = require('./src/parakeet-stt');
 const { createDownloadManager } = require('./src/lib/model-downloads');
 const trayLib = require('./src/lib/tray');
+const cpuDialLib = require('./src/lib/cpu-dial');
 const platform = require('./src/lib/platform');
 const { createDisplayMediaHandler } = require('./src/lib/display-media');
 const { createSettings } = require('./src/lib/settings');
@@ -42,6 +43,7 @@ if (process.env.CALLREC_USER_DATA) app.setPath('userData', process.env.CALLREC_U
 
 let win = null;
 let settings = null;
+let cpuDial = cpuDialLib.createCpuDial(); // replaced once settings load
 let writer = null;
 let startedAtMs = 0;
 let lastSession = null; // summary of the last finished meeting (autorun report)
@@ -157,6 +159,7 @@ function trayState() {
     recording: Boolean(writer),
     elapsedSec: writer ? (Date.now() - startedAtMs) / 1000 : 0,
     finalising,
+    cpu: cpuDial.level,
     shortcut: settings.get().shortcut,
   };
 }
@@ -208,7 +211,7 @@ function createTray() {
       Tray, Menu, nativeImage,
       platform: process.platform,
       getState: trayState,
-      actions: { show: showWindow, toggle: toggleRecording, openFolder: openRecordingsFolder, quit: requestQuit },
+      actions: { show: showWindow, toggle: toggleRecording, openFolder: openRecordingsFolder, quit: requestQuit, speed: (p) => cpuDial.pick(p) },
     });
     setInterval(() => trayCtl.refresh(), 1000).unref();
   } catch (err) {
@@ -419,6 +422,7 @@ function wireIpc() {
       return { error: `Cannot create the meeting folder in ${s.outputRoot}: ${err.message}` };
     }
     startedAtMs = Date.now();
+    cpuDial.recordingStarted();
     channels = new ChannelRecorder(writer.dir);
     sessionLanguage = language;
     sttEngine = engine === 'whisper' ? whisperStt : nativeStt;
@@ -451,6 +455,7 @@ function finishSession() {
   const w = writer;
   const dir = w.finish((Date.now() - startedAtMs) / 1000);
   writer = null;
+  cpuDial.recordingStopped();
   const offsets = channels ? channels.close() : {};
   channels = null;
   lastSession = { dir, segments: w.segments ? w.segments.length : null };
@@ -479,14 +484,19 @@ function queueFinalPass(dir, meta, offsets) {
 async function runFinal(dir, onProgress) {
   const st = whisperStatus(settings.get(), 'final');
   if (!st.ready) { const err = new Error(st.message); err.code = 'model-missing'; throw err; }
-  const server = whisperStt.defaultServerFactory({ bin: whisperStt.binaryPath(), model: st.path, log: (m) => console.error(`[final] ${m}`) });
-  finalServer = server;
+  const log = (m) => console.error(`[final] ${m}`);
+  // Re-spawned between segments whenever the "Finalising speed" level changes.
+  const transcriber = finalPass.adaptiveTranscriber({
+    create: (threads) => whisperStt.defaultServerFactory({ bin: whisperStt.binaryPath(), model: st.path, threads, lowPriority: true, log }),
+    threads: () => cpuDial.threads(),
+    log,
+  });
+  finalServer = transcriber;
   try {
-    await server.start();
     const label = `${modelLabel(st)} (on-device)`;
-    return await finalPass.runFinalPass({ dir, transcriber: finalPass.serverTranscriber(server), label, onProgress });
+    return await finalPass.runFinalPass({ dir, transcriber, label, onProgress });
   } finally {
-    server.stop();
+    transcriber.stop();
     finalServer = null;
   }
 }
@@ -540,6 +550,11 @@ app.whenReady().then(() => {
       encrypt: (s) => safeStorage.encryptString(s),
       decrypt: (b) => safeStorage.decryptString(b),
     },
+  });
+  cpuDial = cpuDialLib.createCpuDial({
+    level: settings.get().finalCpu,
+    persist: (p) => settings.set({ finalCpu: p }),
+    onChange: (p) => { console.error(`[final] finalising speed ${p}%`); if (trayCtl) trayCtl.refresh(); },
   });
   createFinalQueue();
   wireDisplayMedia();
