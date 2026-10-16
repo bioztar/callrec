@@ -23,15 +23,17 @@ function createTeamsApi({ getToken = () => '', saveToken = () => {}, version, We
   let stopped = false;
   let pairAsked = false;
   let reqId = 0;
+  let runToken = ''; // kept for this run even when safeStorage cannot store it
+  const token = () => getToken() || runToken;
 
   function handle(msg) {
-    if (msg && typeof msg.tokenRefresh === 'string' && msg.tokenRefresh) { saveToken(msg.tokenRefresh); log('teams api: paired'); }
+    if (msg && typeof msg.tokenRefresh === 'string' && msg.tokenRefresh) { runToken = msg.tokenRefresh; saveToken(runToken); log('teams api: paired'); }
     const upd = msg && msg.meetingUpdate;
     if (!upd || !upd.meetingState) return;
     inMeeting = Boolean(upd.meetingState.isInMeeting);
     // First meeting without a token: ask Teams once for pairing (a prompt inside Teams).
     const canPair = upd.meetingPermissions ? upd.meetingPermissions.canPair !== false : true;
-    if (inMeeting && !getToken() && canPair && !pairAsked && ws) {
+    if (inMeeting && !token() && canPair && !pairAsked && ws) {
       pairAsked = true;
       reqId += 1;
       try { ws.send(JSON.stringify({ action: 'pair', parameters: {}, requestId: reqId })); } catch { /* ignore */ }
@@ -42,7 +44,7 @@ function createTeamsApi({ getToken = () => '', saveToken = () => {}, version, We
     if (stopped) return;
     const WS = WebSocket || require('ws');
     let sock;
-    try { sock = new WS(apiUrl(getToken(), version)); } catch { return retry(); }
+    try { sock = new WS(apiUrl(token(), version)); } catch { return retry(); }
     ws = sock;
     const onMessage = (data) => { try { handle(JSON.parse(String(data && data.data !== undefined ? data.data : data))); } catch { /* not JSON */ } };
     const onClose = () => { if (ws === sock) { ws = null; inMeeting = null; retry(); } };

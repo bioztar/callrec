@@ -21,10 +21,46 @@ function actionUrl(action, id) { return `${SCHEME}://${action}?id=${encodeURICom
 /// argv (second-instance) → { action, id } or null.
 function parseActionArgv(argv = []) {
   for (const arg of argv) {
-    const m = /^callrec:\/\/([a-z-]+)\/?\?id=([^&]+)/i.exec(String(arg));
+    const m = /^callrec:\/\/([a-z-]+)\/?\?id=([0-9a-f-]{1,64})$/i.exec(String(arg));
     if (m) return { action: m[1].toLowerCase(), id: decodeURIComponent(m[2]) };
   }
   return null;
+}
+
+const ACTION_TTL_MS = 10 * 60 * 1000;
+
+/// Toast buttons are callrec:// links, and any web page or chat message can open
+/// one. So every toast gets a random nonce; only a nonce issued by a live toast
+/// runs, once, before it expires and while its `valid()` still holds.
+///   issue([{ action, run, ttlMs?, valid? }]) → nonce;  run({ action, id }) → bool
+function createActionRegistry({ now = () => Date.now(), randomId = () => require('crypto').randomUUID(), max = 50 } = {}) {
+  const live = new Map();
+  function prune() {
+    const t = now();
+    for (const [k, v] of live) if (Object.values(v).every((a) => a.expiresAt <= t)) live.delete(k);
+    while (live.size > max) live.delete(live.keys().next().value);
+  }
+  return {
+    issue(actions) {
+      prune();
+      const nonce = randomId();
+      const t = now();
+      live.set(nonce, Object.fromEntries(actions.map((a) => [a.action, {
+        run: a.run, valid: a.valid || (() => true), expiresAt: t + (a.ttlMs == null ? ACTION_TTL_MS : a.ttlMs),
+      }])));
+      return nonce;
+    },
+    run({ action, id } = {}) {
+      const entry = live.get(id);
+      const a = entry && Object.prototype.hasOwnProperty.call(entry, action) ? entry[action] : null;
+      if (!a) return false;
+      live.delete(id); // single use: one button per toast
+      if (a.expiresAt <= now() || !a.valid()) return false;
+      a.run();
+      return true;
+    },
+    get size() { return live.size; },
+  };
 }
 
 /// Only auto-recordings shorter than a minute are asked about; manual ones never.
@@ -37,4 +73,4 @@ function shortCallText(durationSec) {
   return `Keep this ${s} s recording?`;
 }
 
-module.exports = { toastXml, actionUrl, parseActionArgv, needsShortCallPrompt, shortCallText, SCHEME, SHORT_CALL_SEC };
+module.exports = { toastXml, actionUrl, parseActionArgv, createActionRegistry, ACTION_TTL_MS, needsShortCallPrompt, shortCallText, SCHEME, SHORT_CALL_SEC };

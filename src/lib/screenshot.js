@@ -26,11 +26,22 @@ function screenshotTarget({ recordingDir, root, date = new Date(), list = (d) =>
 
 /// The desktopCapturer window source for the Teams call window, or null when
 /// there is none or it is minimised (→ caller captures the screen under the cursor).
-function pickCallSource(sources, teamsWindows) {
+/// The Teams call window to capture (not minimised), or null.
+function pickCallWindow(teamsWindows) {
   const open = (teamsWindows || []).filter((w) => !w.minimized);
   const call = findCallWindow(open.map((w) => w.title));
-  if (!call) return null;
-  return sources.find((s) => s.name === call.title) || null;
+  return call ? open.find((w) => w.title === call.title) : null;
+}
+
+function pickCallSource(sources, teamsWindows) {
+  const w = pickCallWindow(teamsWindows);
+  return w ? sources.find((s) => s.name === w.title) || null : null;
+}
+
+/// Thumbnail size for one window source: the window's own pixel size.
+function windowThumbSize(win, displays) {
+  if (win && win.width > 0 && win.height > 0) return { width: win.width, height: win.height };
+  return fullSize(displays);
 }
 
 /// The screen source of the display under the cursor (falls back to the first screen).
@@ -50,4 +61,4 @@ function fullSize(displays) {
   return { width: width || 1920, height: height || 1080 };
 }
 
-module.exports = { screenshotTarget, pickCallSource, pickScreenSource, fullSize };
+module.exports = { screenshotTarget, pickCallWindow, windowThumbSize, pickCallSource, pickScreenSource, fullSize };

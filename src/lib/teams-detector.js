@@ -5,20 +5,25 @@ const { parseTitle, callName } = require('./teams-titles');
 const END_DEBOUNCE_MS = 15000;
 const POLL_MS = 2000;
 
-/// Picks the call window from a list of Teams window titles (first call-shaped one).
+/// Picks the call window from Teams window titles: a positive call title first,
+/// then one that at least names the call, then an unrecognised one.
 function findCallWindow(titles = []) {
+  const rank = (p) => (p.positive ? 3 : p.kind !== 'unknown' ? 2 : 1);
+  let best = null;
   for (const title of titles) {
     const parsed = parseTitle(title);
-    if (parsed.call) return { title, ...parsed };
+    if (parsed.call && (!best || rank(parsed) > rank(best))) best = { title, ...parsed };
   }
-  return null;
+  return best;
 }
 
 /// Teams call state machine. Feed it signals with tick(); it decides when a
 /// call starts and ends and whether callrec should record it.
 ///   signals: { mic: bool, api: true|false|null (null = API not connected), windows: [titles] }
 ///   hooks:   isRecording() → bool, enabled() → bool, onStart(call), onEnd(call)
-/// start = (mic or API in-meeting) and a call window; end = both gone for 15 s.
+/// start = (mic or API in-meeting) and a call window (recognised or not);
+/// end = mic/API gone and no recognised call window, for 15 s. Unrecognised
+/// windows never keep a call open (a lingering pop-out must not record forever).
 function createTeamsDetector({ isRecording = () => false, enabled = () => true, onStart = () => {}, onEnd = () => {}, endDebounceMs = END_DEBOUNCE_MS, now = () => Date.now() } = {}) {
   let call = null;
   let goneSince = null;
@@ -47,9 +52,9 @@ function createTeamsDetector({ isRecording = () => false, enabled = () => true, 
       else if (enabled()) { call.recording = true; onStart(call); }
       return call;
     }
-    if (inCall || win) {
+    if (inCall || (win && win.positive)) {
       goneSince = null;
-      if (win && call.kind === 'unknown' && win.kind !== 'unknown') Object.assign(call, { title: win.title, kind: win.kind, name: callName(win) });
+      if (win && win.kind !== 'unknown' && call.kind === 'unknown') Object.assign(call, { title: win.title, kind: win.kind, name: callName(win) });
       return call;
     }
     if (goneSince == null) goneSince = t;

@@ -172,6 +172,7 @@ function trayState() {
     shortcut: settings.get().shortcut,
     screenshotShortcut: settings.get().screenshotShortcut,
     autoRecordTeams: settings.get().autoRecordTeams !== false,
+    autoRecording: Boolean(autoCall && writer && writer.dir === autoCall.dir),
   };
 }
 
@@ -226,7 +227,8 @@ function createTray() {
         show: showWindow,
         toggle: toggleRecording,
         screenshot: takeScreenshot,
-        autoRecord: (on) => { settings.set({ autoRecordTeams: on }); trayCtl.refresh(); },
+        autoRecord: (on) => { settings.set({ autoRecordTeams: on }); trayCtl.refresh(); }, // future calls only
+        discard: () => stopAutoRecording(true),
         openFolder: openRecordingsFolder,
         quit: requestQuit,
         speed: (p) => cpuDial.pick(p),
@@ -507,7 +509,7 @@ function finishSession() {
     // Ignored = kept: nothing is deleted unless Delete is clicked.
     toast(toastLib.shortCallText(durationSec), call.name, [
       { label: 'Keep', action: 'keep', run: () => {} },
-      { label: 'Delete', action: 'delete', run: () => deleteMeeting(dir) },
+      { label: 'Delete', action: 'delete', valid: () => !(writer && writer.dir === dir), run: () => deleteMeeting(dir) },
     ]);
   }
   return dir;
@@ -531,10 +533,14 @@ function startAutoRecording(call) {
 
 function autoRecordingStarted(call, dir) {
   autoCall = { ...call, dir, ending: false, discard: false };
-  toast(`Recording: ${call.name}`, '', [
-    { label: 'Stop', action: 'stop', run: () => stopAutoRecording(false) },
-    { label: 'Discard', action: 'discard', run: () => stopAutoRecording(true) },
+  // Valid only while this very recording runs (a stale or forged link does nothing).
+  const live = () => Boolean(autoCall && autoCall.dir === dir && writer && writer.dir === dir);
+  const DAY = 24 * 3600 * 1000;
+  toast(`Recording: ${call.name}`, 'Stop or Discard here or in the tray menu', [
+    { label: 'Stop', action: 'stop', ttlMs: DAY, valid: live, run: () => stopAutoRecording(false) },
+    { label: 'Discard', action: 'discard', ttlMs: DAY, valid: live, run: () => stopAutoRecording(true) },
   ]);
+  if (trayCtl) trayCtl.refresh();
 }
 
 function stopAutoRecording(discard) {
@@ -594,15 +600,20 @@ function startTeams() {
     };
   } else {
     const signals = require('./src/teams-signals-win');
+    let tokenWarned = false;
     teamsApi = teamsApiLib.createTeamsApi({
       getToken: () => settings.getTeamsToken(),
-      saveToken: (t) => settings.setTeamsToken(t),
+      saveToken: (t) => {
+        settings.setTeamsToken(t);
+        if (!settings.getTeamsToken() && !tokenWarned) { tokenWarned = true; console.error('[teams] safeStorage unavailable: API pairing kept for this run only'); }
+      },
       version: app.getVersion(),
       log: (m) => console.error(`[teams] ${m}`),
     });
     teamsApi.start();
+    // Always read: the toggle only decides whether the next call is recorded,
+    // never ends a recording that is running.
     read = async () => {
-      if (settings.get().autoRecordTeams === false) return { mic: false, api: null, windows: [] };
       return { mic: signals.teamsMicInUse(), api: teamsApi.state(), windows: signals.teamsWindows().map((w) => w.title) };
     };
   }
@@ -615,9 +626,9 @@ function startTeams() {
 
 // ---- notifications with buttons ----------------------------------------------
 
-const toastHandlers = new Map(); // id → { action: fn }
+const toastActions = toastLib.createActionRegistry();
 const liveToasts = new Set(); // keep Notification objects alive until closed
-let toastSeq = 0;
+let toastsReady = false; // Start-menu shortcut + AUMID + callrec:// in place
 
 /// Windows toasts need a Start-menu shortcut carrying the AppUserModelID (a
 /// portable exe has none); per-user, no admin. Buttons use callrec:// activation.
@@ -641,18 +652,14 @@ function setUpWindowsToasts() {
 }
 
 function toast(title, body = '', actions = [], { onClick } = {}) {
-  const id = String((toastSeq += 1));
-  if (actions.length) {
-    toastHandlers.set(id, Object.fromEntries(actions.map((a) => [a.action, a.run])));
-    if (toastHandlers.size > 20) toastHandlers.delete(toastHandlers.keys().next().value);
-  }
-  if (Notification.isSupported() && (process.platform === 'win32' || IS_MAC)) {
+  const id = actions.length ? toastActions.issue(actions) : '';
+  if (Notification.isSupported() && ((process.platform === 'win32' && toastsReady) || IS_MAC)) {
     try {
       const n = process.platform === 'win32'
         ? new Notification({ toastXml: toastLib.toastXml({ title, body, actions: actions.map((a) => ({ label: a.label, action: a.action, id })) }) })
         : new Notification({ title, body, actions: actions.map((a) => ({ type: 'button', text: a.label })) });
       liveToasts.add(n);
-      n.on('action', (_e, index) => { if (actions[index]) actions[index].run(); });
+      n.on('action', (_e, index) => { if (actions[index]) toastActions.run({ action: actions[index].action, id }); });
       if (onClick) n.on('click', onClick);
       n.on('close', () => liveToasts.delete(n));
       n.on('failed', (_e, err) => { liveToasts.delete(n); console.error(`toast failed: ${err}`); if (trayCtl) trayCtl.balloon(title, body); });
@@ -663,10 +670,9 @@ function toast(title, body = '', actions = [], { onClick } = {}) {
   notify(body ? `${title} — ${body}` : title);
 }
 
-/// A toast button (callrec://<action>?id=…) reached us through 'second-instance'.
-function runToastAction({ action, id }) {
-  const handlers = toastHandlers.get(id);
-  if (handlers && handlers[action]) { toastHandlers.delete(id); handlers[action](); }
+/// A toast button (callrec://<action>?id=<nonce>) reached us through 'second-instance'.
+function runToastAction(act) {
+  if (!toastActions.run(act)) console.error(`[toast] ignored callrec://${act.action} (unknown, used or expired)`);
 }
 
 // ---- screenshots --------------------------------------------------------------
@@ -675,13 +681,20 @@ function runToastAction({ action, id }) {
 /// meeting folder while recording, else <recordings>/Screenshots.
 async function takeScreenshot() {
   try {
-    const displays = screen.getAllDisplays();
-    const sources = await desktopCapturer.getSources({ types: ['window', 'screen'], thumbnailSize: screenshotLib.fullSize(displays) });
     let teamsWindows = [];
     if (process.platform === 'win32') { try { teamsWindows = require('./src/teams-signals-win').teamsWindows(); } catch { teamsWindows = []; } }
-    let src = screenshotLib.pickCallSource(sources, teamsWindows);
+    const callWin = screenshotLib.pickCallWindow(teamsWindows);
+    let src = null;
+    if (callWin) {
+      const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: screenshotLib.windowThumbSize(callWin, screen.getAllDisplays()) });
+      src = sources.find((s) => s.name === callWin.title) || null;
+    }
     const fallback = !src;
-    if (!src) src = screenshotLib.pickScreenSource(sources, screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id);
+    if (!src) {
+      const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+      const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: screenshotLib.fullSize([d]) });
+      src = screenshotLib.pickScreenSource(sources, d.id);
+    }
     if (!src || src.thumbnail.isEmpty()) throw new Error('nothing to capture');
     const date = new Date();
     const t = screenshotLib.screenshotTarget({ recordingDir: writer ? writer.dir : null, root: currentSettings().outputRoot, date });
@@ -782,6 +795,9 @@ if (!app.requestSingleInstanceLock()) {
 
 app.whenReady().then(() => {
   if (!app.hasSingleInstanceLock()) return;
+  // Before anything can toast: AUMID, per-user Start-menu shortcut, callrec:// handler.
+  if (process.platform === 'win32') app.setAppUserModelId(AUMID);
+  toastsReady = setUpWindowsToasts();
   settings = createSettings({
     file: path.join(app.getPath('userData'), 'settings.json'),
     defaults: { ...platform.settingsDefaults(process.platform), whisperModelPath: '' },
@@ -802,8 +818,6 @@ app.whenReady().then(() => {
   installMenu();
   registerShortcut(settings.get().shortcut);
   registerScreenshotShortcut(settings.get().screenshotShortcut);
-  if (process.platform === 'win32') app.setAppUserModelId(AUMID);
-  setUpWindowsToasts();
   createTray();
   createWindow();
   if (process.platform === 'win32') powerMonitor.on('shutdown', onSessionEnd);

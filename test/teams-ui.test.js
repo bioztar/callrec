@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { toastXml, parseActionArgv, needsShortCallPrompt, shortCallText } = require('../src/lib/toast');
-const { screenshotTarget, pickCallSource, pickScreenSource, fullSize } = require('../src/lib/screenshot');
+const { toastXml, parseActionArgv, needsShortCallPrompt, shortCallText, createActionRegistry } = require('../src/lib/toast');
+const { screenshotTarget, pickCallSource, pickScreenSource, fullSize, windowThumbSize } = require('../src/lib/screenshot');
 const { createTeamsApi, apiUrl } = require('../src/lib/teams-api');
 const { menuTemplate } = require('../src/lib/tray');
 const { createSettings } = require('../src/lib/settings');
@@ -85,12 +85,12 @@ test('screenshot marker lands in the transcript at its time; call header', () =>
 
 test('tray: Screenshot item with hotkey; Teams toggle on Windows only', () => {
   const actions = { toggle() {}, show() {}, openFolder() {}, quit() {}, screenshot() {}, autoRecord() {} };
-  const win = menuTemplate({ shortcut: 'CommandOrControl+Shift+R', screenshotShortcut: 'Control+Alt+S', autoRecordTeams: true, platform: 'win32', actions });
-  assert.ok(win.some((i) => i.label === 'Screenshot\tCtrl+Alt+S'));
+  const win = menuTemplate({ shortcut: 'CommandOrControl+Shift+R', screenshotShortcut: 'Control+Shift+F8', autoRecordTeams: true, platform: 'win32', actions });
+  assert.ok(win.some((i) => i.label === 'Screenshot\tCtrl+Shift+F8'));
   const toggle = win.find((i) => i.label === 'Auto-record Teams calls');
   assert.equal(toggle.type, 'checkbox');
   assert.equal(toggle.checked, true);
-  const mac = menuTemplate({ shortcut: '', screenshotShortcut: 'Control+Alt+S', platform: 'darwin', actions });
+  const mac = menuTemplate({ shortcut: '', screenshotShortcut: 'Control+Shift+F8', platform: 'darwin', actions });
   assert.ok(!mac.some((i) => i.label === 'Auto-record Teams calls'));
 });
 
@@ -99,7 +99,7 @@ test('settings: defaults, Teams token encrypted and never exposed', () => {
   const crypto = { available: () => true, encrypt: (s) => Buffer.from(`enc:${s}`), decrypt: (b) => String(b).slice(4) };
   const s = createSettings({ file, crypto });
   assert.equal(s.get().autoRecordTeams, true);
-  assert.equal(s.get().screenshotShortcut, 'Control+Alt+S');
+  assert.equal(s.get().screenshotShortcut, 'Control+Shift+F8');
   s.setTeamsToken('tok-123');
   assert.equal(s.getTeamsToken(), 'tok-123');
   assert.equal(s.get().teamsApiPaired, true);
@@ -135,8 +135,51 @@ test('Teams API: in-meeting state, pairing once, token saved, silent when closed
 
 test('mic consent entries: Teams packaged/non-packaged, never callrec', () => {
   assert.equal(isTeamsMicEntry('MSTeams_8wekyb3d8bbwe'), true);
-  assert.equal(isTeamsMicEntry('C:#Users#a#AppData#Local#Microsoft#Teams#current#Teams.exe'), true);
+  assert.equal(isTeamsMicEntry('C:#Users#a#AppData#Local#Microsoft#Teams#current#Teams.exe'), false, 'classic Teams / anything named *teams* is not new Teams');
+  assert.equal(isTeamsMicEntry('C:#Tools#steams-helper.exe'), false);
   assert.equal(isTeamsMicEntry('C:#Program Files#WindowsApps#MSTeams_x#ms-teams.exe'), true);
   assert.equal(isTeamsMicEntry('C:#Users#a#Desktop#callrec.exe'), false);
   assert.equal(isTeamsMicEntry('C:#Program Files#Zoom#bin#Zoom.exe'), false);
+});
+
+test('toast actions: random nonce, live only, single use, expiring', () => {
+  let t = 0;
+  let n = 0;
+  const reg = createActionRegistry({ now: () => t, randomId: () => `00000000-0000-4000-8000-${String((n += 1)).padStart(12, '0')}` });
+  const ran = [];
+  let recording = true;
+  const a = reg.issue([
+    { action: 'stop', valid: () => recording, ttlMs: 86400000, run: () => ran.push('stop') },
+    { action: 'discard', valid: () => recording, ttlMs: 86400000, run: () => ran.push('discard') },
+  ]);
+  const b = reg.issue([{ action: 'delete', run: () => ran.push('delete') }]);
+  assert.notEqual(a, b);
+  assert.equal(reg.run({ action: 'discard', id: '1' }), false, 'sequential id guess');
+  assert.equal(reg.run({ action: 'discard', id: '00000000-0000-4000-8000-000000000099' }), false, 'unknown nonce');
+  assert.equal(reg.run({ action: 'delete', id: a }), false, 'action not on that toast');
+  assert.equal(reg.run({ action: 'constructor', id: a }), false);
+  assert.equal(reg.run({ action: 'discard', id: a }), true);
+  assert.equal(reg.run({ action: 'discard', id: a }), false, 'reused');
+  assert.equal(reg.run({ action: 'stop', id: a }), false, 'one button per toast');
+  t = 10 * 60 * 1000 + 1;
+  assert.equal(reg.run({ action: 'delete', id: b }), false, 'Delete expires after 10 min');
+  const c = reg.issue([{ action: 'discard', valid: () => recording, ttlMs: 86400000, run: () => ran.push('late discard') }]);
+  recording = false;
+  assert.equal(reg.run({ action: 'discard', id: c }), false, 'Discard only while that recording runs');
+  assert.deepEqual(ran, ['discard']);
+  const real = createActionRegistry().issue([{ action: 'stop', run() {} }]);
+  assert.match(real, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(parseActionArgv(['callrec://discard?id=1&x=2']), null);
+});
+
+test('tray: Stop + Discard for an auto-recording', () => {
+  const actions = { toggle() {}, show() {}, openFolder() {}, quit() {}, discard() {} };
+  const labels = (st) => menuTemplate({ shortcut: '', platform: 'win32', actions, ...st }).map((i) => i.label);
+  assert.deepEqual(labels({ recording: true, autoRecording: true }).slice(0, 2), ['Stop recording', 'Discard this recording']);
+  assert.ok(!labels({ recording: true, autoRecording: false }).includes('Discard this recording'), 'manual: no Discard');
+});
+
+test('screenshot thumbnail: the window\'s own size', () => {
+  assert.deepEqual(windowThumbSize({ title: 'x', width: 1280, height: 720 }, []), { width: 1280, height: 720 });
+  assert.deepEqual(windowThumbSize({ title: 'x' }, [{ size: { width: 1920, height: 1080 }, scaleFactor: 1 }]), { width: 1920, height: 1080 });
 });

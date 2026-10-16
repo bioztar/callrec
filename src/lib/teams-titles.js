@@ -10,18 +10,27 @@ const NOT_CALL = [
   /^$/,
   /^Microsoft Teams(?:\s*\(.*\))?$/i,
   /^(?:Activity|Chat|Teams|Calendar|Calls|Files|Apps|OneDrive|Communities|Copilot|Settings|Notifications?|Search|Help)(?:\s*\|.*)?$/i,
+  /^Viva (?:Engage|Connections|Learning|Insights|Goals|Pulse|Amplify)\b/i,
+  /^(?:Planner|Approvals|Shifts|Whiteboard|Wiki|Tasks by Planner and To Do)$/i,
   /^(?:Meeting compact view|Sharing control bar|Screen sharing toolbar|Microsoft Teams Notification|Teams Notification)$/i,
 ];
 
-/// First match wins: [pattern, kind, name(m)].
+// A person as Teams shows them: capitalised words with name particles, maybe "(External)".
+const WORD = String.raw`\p{Lu}[\p{L}'’.-]+`;
+const PERSON = String.raw`${WORD}(?:\s+(?:${WORD}|de|del|der|den|da|di|du|dos|van|von|la|le|y))*\s+${WORD}(?:\s*\([^)]*\))?`;
+
+/// Call-window patterns, first match wins: [pattern, kind, name(m), { holds }].
+/// Explicit shapes are "positive" and keep a call open; a bare person name only
+/// names the call (it could be any two capitalised words). Anything else is
+/// "unknown": it may start a call with the mic in use, is named "Teams call",
+/// and never keeps a call open.
 const RULES = [
   [/^Meeting in ["“](.+)["”]$/i, 'meeting', (m) => m[1]],
   [/^Meeting with (.+)$/i, 'meeting', (m) => m[1]],
   [/^Call with (.+)$/i, 'one-to-one', (m) => m[1]],
-  [/^(.+?),\s*(.+?)(?:,\s*.+)?$/, 'group', (m) => m[0]],
-  [/^(.+) and (?:\d+ others?|.+)$/i, 'group', (m) => m[0]],
-  [/^(?:\p{Lu}[\p{L}'’.-]+)(?:\s+(?:\p{Lu}[\p{L}'’.-]+|de|del|der|den|da|di|du|dos|van|von|la|le|y))*\s+\p{Lu}[\p{L}'’.-]+(?:\s*\(.*\))?$/u, 'one-to-one', (m) => m[0].replace(/\s*\(.*\)$/, '')],
-  [/^(.+)$/, 'meeting', (m) => m[1]],
+  [new RegExp(`^${PERSON}(?:,\\s*${PERSON})+(?:,?\\s+and\\s+(?:${PERSON}|\\d+ others?))?$`, 'u'), 'group', (m) => m[0]],
+  [new RegExp(`^${PERSON}\\s+and\\s+(?:${PERSON}|\\d+ others?)$`, 'u'), 'group', (m) => m[0]],
+  [new RegExp(`^${PERSON}$`, 'u'), 'one-to-one', (m) => m[0].replace(/\s*\([^)]*\)$/, ''), { holds: false }],
 ];
 
 function stripSuffix(title) {
@@ -32,12 +41,12 @@ function stripSuffix(title) {
 
 function parseTitle(title) {
   const t = stripSuffix(title);
-  if (NOT_CALL.some((re) => re.test(t))) return { call: false, name: '', kind: 'none' };
-  for (const [re, kind, name] of RULES) {
+  if (NOT_CALL.some((re) => re.test(t))) return { call: false, positive: false, name: '', kind: 'none' };
+  for (const [re, kind, name, opts = {}] of RULES) {
     const m = t.match(re);
-    if (m) return { call: true, name: name(m).trim(), kind };
+    if (m) return { call: true, positive: opts.holds !== false, name: name(m).trim(), kind };
   }
-  return { call: true, name: '', kind: 'unknown' };
+  return { call: true, positive: false, name: '', kind: 'unknown' };
 }
 
 /// Recording name for a call: meeting → subject; 1:1 → "Call with X"; group → its name.

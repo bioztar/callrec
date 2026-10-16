@@ -101,15 +101,16 @@ The fixtures are short, so the WER spread is small; the only Spanish error left 
 ## Auto-record Teams calls (Windows)
 
 When a Microsoft Teams call starts, callrec starts recording by itself, exactly as if you had pressed Start, and
-shows a notification **"Recording: Weekly sync"** with **Stop** and **Discard**. It works for scheduled meetings,
+shows a notification **"Recording: Weekly sync"** with **Stop** and **Discard**. The tray menu has the same two
+items (**Stop recording**, **Discard this recording**) while it runs. It works for scheduled meetings,
 1:1 calls and group calls in the new Teams app (`ms-teams.exe`). Turn it off with **Auto-record Teams calls** in the
-tray menu; it is on by default.
+tray menu; it is on by default. Turning it off affects the next call, not one that is being recorded.
 
 - **Name:** the folder is `YYYY-MM-DD HH.MM — <name>`. The name is the meeting subject, `Call with <person>` for a
-  1:1, the group or chat name for a group call, or `Teams call` when the title says nothing. The transcript header
+  1:1, the group or chat name for a group call, or `Teams call` when callrec does not recognise the window title. The transcript header
   adds the call type, its start and end time, and how it was detected.
 - **End:** recording stops about 15 s after Teams releases the microphone and the call window is gone, so a short
-  drop and reconnect stays one recording.
+  drop and reconnect stays one recording. A Teams window callrec does not recognise never keeps a recording going.
 - **Stop** keeps it stopped for the rest of that call. **Discard** stops it and deletes the folder.
 - **Short calls:** an auto-recording under a minute asks "Keep this 40 s recording?". If you ignore the question,
   the recording is kept. Manual recordings are never asked about.
@@ -127,7 +128,7 @@ Teams in a web browser is not supported.
 
 ## Screenshots
 
-**Screenshot** in the tray menu, or **Ctrl+Alt+S** (change it in Settings), saves the Teams call window at full size,
+**Screenshot** in the tray menu, or **Ctrl+Shift+F8** (change it in Settings), saves the Teams call window at full size,
 including a shared screen or slides. If there is no call window, or it is minimised, callrec captures the screen
 under the mouse pointer and says so. A "Screenshot saved" notification opens the folder when clicked.
 

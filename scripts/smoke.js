@@ -11,7 +11,7 @@
 //   node scripts/smoke.js <path-to-app-exe> [--model file] [--seconds 25] [--drain 600] [--require-them] [--teams]
 //
 // --teams: no autorun toggles; injected Teams signals (CALLREC_TEAMS_FAKE) start the
-// recording ("Weekly sync | Microsoft Teams" + mic in use), take a screenshot, then end
+// recording ('Meeting in "Weekly sync"' window + mic in use), take a screenshot, then end
 // the call; checks the call-named folder, the transcript header and the screenshot marker.
 
 const { spawn } = require('child_process');
@@ -45,7 +45,7 @@ fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ outputRo
 
 const teamsFake = path.join(root, 'teams-fake.json');
 if (teams) {
-  const call = { mic: true, windows: ['Chat | Ana Pérez | Microsoft Teams', 'Weekly sync | Microsoft Teams'] };
+  const call = { mic: true, windows: ['Chat | Ana Pérez | Microsoft Teams', 'Meeting in "Weekly sync" | Microsoft Teams'] };
   const pollMs = 500;
   const n = Math.round((seconds * 1000) / pollMs);
   fs.writeFileSync(teamsFake, JSON.stringify({

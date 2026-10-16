@@ -8,7 +8,7 @@ const DEFAULTS = {
   engine: 'native',
   language: 'es',
   shortcut: 'CommandOrControl+Shift+R',
-  screenshotShortcut: 'Control+Alt+S',
+  screenshotShortcut: 'Control+Shift+F8',
   autoRecordTeams: true,
 };
 

@@ -9,7 +9,6 @@ const path = require('path');
 
 const CONSENT = 'Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone';
 const TEAMS_PACKAGE = /^MSTeams_8wekyb3d8bbwe$/i;
-const TEAMS_PATH = /ms-teams|teams/i;
 const TEAMS_EXE = /^ms-teams\.exe$/i;
 const HKCU = -2147483647; // (HKEY)(LONG)0x80000001, sign-extended on x64
 const KEY_READ = 0x20019;
@@ -22,6 +21,7 @@ function load() {
   const user32 = koffi.load('user32.dll');
   const kernel32 = koffi.load('kernel32.dll');
   const advapi32 = koffi.load('advapi32.dll');
+  const RECT = koffi.struct('CallrecRECT', { left: 'int32', top: 'int32', right: 'int32', bottom: 'int32' });
   const EnumProc = koffi.proto('bool __stdcall CallrecEnumProc(void *hwnd, intptr_t lParam)');
   api = {
     koffi,
@@ -30,6 +30,7 @@ function load() {
     GetWindowTextW: user32.func('int __stdcall GetWindowTextW(void *hwnd, _Out_ uint16_t *buf, int max)'),
     GetWindowThreadProcessId: user32.func('uint32_t __stdcall GetWindowThreadProcessId(void *hwnd, _Out_ uint32_t *pid)'),
     IsWindowVisible: user32.func('bool __stdcall IsWindowVisible(void *hwnd)'),
+    GetWindowRect: user32.func('bool __stdcall GetWindowRect(void *hwnd, _Out_ CallrecRECT *r)'),
     IsIconic: user32.func('bool __stdcall IsIconic(void *hwnd)'),
     OpenProcess: kernel32.func('void * __stdcall OpenProcess(uint32_t access, bool inherit, uint32_t pid)'),
     CloseHandle: kernel32.func('bool __stdcall CloseHandle(void *h)'),
@@ -59,7 +60,7 @@ function exeName(pid) {
   return name;
 }
 
-/// Visible top-level windows of ms-teams.exe: [{ title, minimized }].
+/// Visible top-level windows of ms-teams.exe: [{ title, minimized, width, height }] (pixels).
 function teamsWindows() {
   const a = load();
   const out = [];
@@ -71,7 +72,9 @@ function teamsWindows() {
       a.GetWindowThreadProcessId(hwnd, pid);
       if (!TEAMS_EXE.test(exeName(pid[0]))) return true;
       const n = a.GetWindowTextW(hwnd, buf, 512);
-      out.push({ title: buf.toString('utf16le', 0, n * 2), minimized: Boolean(a.IsIconic(hwnd)) });
+      const r = {};
+      const size = a.GetWindowRect(hwnd, r) ? { width: r.right - r.left, height: r.bottom - r.top } : {};
+      out.push({ title: buf.toString('utf16le', 0, n * 2), minimized: Boolean(a.IsIconic(hwnd)), ...size });
     } catch { /* keep enumerating */ }
     return true;
   }, a.koffi.pointer(a.EnumProc));
@@ -110,7 +113,7 @@ function isTeamsMicEntry(name, { ownExe = process.execPath } = {}) {
   const lower = name.toLowerCase();
   if (own && lower === own) return false;
   if (/callrec/.test(lower)) return false;
-  return TEAMS_PATH.test(path.win32.basename(name.replace(/#/g, '\\')));
+  return TEAMS_EXE.test(path.win32.basename(name.replace(/#/g, '\\')));
 }
 
 const inUse = (sub) => {

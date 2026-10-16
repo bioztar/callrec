@@ -25,7 +25,11 @@ test('title parser: suffix stripping and kinds covered', () => {
   assert.equal(stripSuffix('Weekly sync | Microsoft Teams'), 'Weekly sync');
   assert.equal(stripSuffix('Weekly sync - Microsoft Teams (work or school)'), 'Weekly sync');
   const kinds = new Set(fixtures.titles.filter((r) => r.call).map((r) => r.kind));
-  for (const k of ['meeting', 'one-to-one', 'group']) assert.ok(kinds.has(k), k);
+  for (const k of ['meeting', 'one-to-one', 'group', 'unknown']) assert.ok(kinds.has(k), k);
+  assert.equal(parseTitle('Budget, Q4 review').kind, 'unknown', 'a bare comma is not a group');
+  assert.equal(parseTitle('Viva Engage | Microsoft Teams').call, false);
+  assert.equal(parseTitle('Ana Pérez | Microsoft Teams').positive, false, 'a bare name only names the call');
+  assert.equal(parseTitle('Meeting in "General" | Microsoft Teams').positive, true);
 });
 
 test('call names: meeting, 1:1, group, unknown', () => {
@@ -60,13 +64,13 @@ function harness(opts = {}) {
   return { d, events, step, setRecording: (v) => { recording = v; } };
 }
 
-const CALL = { mic: true, windows: ['Chat | Ana | Microsoft Teams', 'Weekly sync | Microsoft Teams'] };
+const CALL = { mic: true, windows: ['Chat | Ana | Microsoft Teams', 'Meeting in "Weekly sync" | Microsoft Teams'] };
 const NONE = { mic: false, windows: ['Chat | Ana | Microsoft Teams'] };
 
 test('detector: start needs mic and a call window', () => {
   const h = harness();
   h.step({ mic: true, windows: ['Chat | Ana | Microsoft Teams'] });
-  h.step({ mic: false, windows: ['Weekly sync | Microsoft Teams'] });
+  h.step({ mic: false, windows: ['Meeting in "Weekly sync" | Microsoft Teams'] });
   assert.deepEqual(h.events, []);
   h.step(CALL);
   assert.deepEqual(h.events, [['start', 'Weekly sync', 'local']]);
@@ -129,4 +133,51 @@ test('detector: API path vs local path', () => {
 test('findCallWindow skips main-window views', () => {
   assert.equal(findCallWindow(['Activity | Microsoft Teams', 'Microsoft Teams']), null);
   assert.equal(findCallWindow(CALL.windows).name, 'Weekly sync');
+  assert.equal(findCallWindow(['Viva Engage | Microsoft Teams', 'Ana Pérez | Microsoft Teams']).kind, 'one-to-one', 'recognised title wins');
+});
+
+test('detector: unrecognised window starts a call with the mic, named "Teams call"', () => {
+  const h = harness();
+  h.step({ mic: false, windows: ['Weekly sync | Microsoft Teams'] });
+  assert.deepEqual(h.events, [], 'no mic, no call');
+  h.step({ mic: true, windows: ['Weekly sync | Microsoft Teams'] });
+  assert.deepEqual(h.events, [['start', 'Teams call', 'local']]);
+});
+
+test('detector: unrecognised window never holds a call open', () => {
+  const h = harness();
+  h.step({ mic: true, windows: ['Some pop-out | Microsoft Teams'] });
+  for (let i = 0; i < 9; i += 1) h.step({ mic: false, windows: ['Some pop-out | Microsoft Teams'] });
+  assert.deepEqual(h.events.map((e) => e[0]), ['start', 'end']);
+  // A recognised window does hold it (and upgrades the name).
+  const k = harness();
+  k.step({ mic: true, windows: ['Some pop-out | Microsoft Teams'] });
+  k.step({ mic: true, windows: ['Call with Ana Pérez | Microsoft Teams'] });
+  assert.equal(k.d.call.name, 'Call with Ana Pérez');
+  for (let i = 0; i < 20; i += 1) k.step({ mic: false, windows: ['Some pop-out | Microsoft Teams', 'Call with Ana Pérez | Microsoft Teams'] });
+  assert.equal(k.events.length, 1);
+  // API out of meeting + mic released + only unrecognised windows → ends.
+  const a = harness();
+  a.step({ api: true, mic: false, windows: ['Weekly sync | Microsoft Teams'] });
+  for (let i = 0; i < 9; i += 1) a.step({ api: false, mic: false, windows: ['Weekly sync | Microsoft Teams', 'Ana Pérez | Microsoft Teams'] });
+  assert.deepEqual(a.events.map((e) => e[0]), ['start', 'end']);
+});
+
+test('detector: turning auto-record off mid-call keeps recording until the call ends', () => {
+  let on = true;
+  const h = harness({ enabled: undefined });
+  const d = createTeamsDetector({ enabled: () => on, now: () => 0 });
+  assert.ok(d); // enabled is only consulted when a call starts
+  const events = [];
+  let t = 0;
+  const det = createTeamsDetector({ now: () => t, enabled: () => on, onStart: () => events.push('start'), onEnd: () => events.push('end') });
+  det.tick(CALL); t += 2000;
+  on = false;
+  for (let i = 0; i < 20; i += 1) { det.tick(CALL); t += 2000; }
+  assert.deepEqual(events, ['start'], 'still recording');
+  for (let i = 0; i < 9; i += 1) { det.tick(NONE); t += 2000; }
+  assert.deepEqual(events, ['start', 'end']);
+  det.tick(CALL);
+  assert.deepEqual(events, ['start', 'end'], 'next call not recorded while off');
+  assert.ok(h);
 });
