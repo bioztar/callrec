@@ -19,13 +19,17 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'callrec-fp-'));
 const DRAFT = '# Draft\n\n[00:01] Me: borrador en vivo\n';
 
 /// A stopped meeting: live draft on disk + the mic channel from the Spanish fixture.
-function meeting({ offset = 1.5 } = {}) {
+function meeting({ offset = 1.5, me = 'spanish.wav', them = '' } = {}) {
   const dir = tmp();
   fs.writeFileSync(path.join(dir, 'transcript.md'), DRAFT);
   fs.writeFileSync(path.join(dir, 'transcript.json'), '{"draft":true}\n');
   const rec = new ChannelRecorder(dir);
-  const { samples } = readWav(fs.readFileSync(path.join(FIX, 'spanish.wav')));
+  const { samples } = readWav(fs.readFileSync(path.join(FIX, me)));
   for (let i = 0; i < samples.length; i += 4000) rec.add('ME', samples.subarray(i, i + 4000), offset);
+  if (them) {
+    const t = readWav(fs.readFileSync(path.join(FIX, them))).samples;
+    for (let i = 0; i < t.length; i += 4000) rec.add('THEM', t.subarray(i, i + 4000), offset + 20);
+  }
   const offsets = rec.close();
   fp.prepareJob(dir, { meta: { title: 'Prueba', startedAt: new Date('2026-10-15T10:00:00Z'), durationSec: 12, engine: 'Whisper small', language: 'mixed' }, offsets, language: 'mixed' });
   return { dir, samples };
@@ -107,4 +111,58 @@ test('final pass with Parakeet on the Spanish fixture', { skip, timeout: 300000 
   } finally { server.stop(); }
   const md = fs.readFileSync(path.join(dir, 'transcript.md'), 'utf8').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   for (const w of ['prueba', 'grabacion', 'precios', 'propuesta', 'lunes']) assert.ok(md.includes(w), `${w} missing:\n${md}`);
+});
+
+/// Server stand-in whose text depends only on the audio, so any thread count
+/// gives the same words; records every spawn.
+function fakeServers() {
+  const spawned = [];
+  const create = (threads) => {
+    const srv = { threads, stopped: false, decoded: 0,
+      async start() {},
+      async transcribe(wav) { srv.decoded += 1; let h = 0; for (const b of wav) h = (h * 31 + b) >>> 0; return { text: `seg ${wav.length}:${h}`, language: '', autoLanguage: true, segments: [] }; },
+      stop() { srv.stopped = true; } };
+    spawned.push(srv);
+    return srv;
+  };
+  return { spawned, create };
+}
+
+const CALL = { me: 'mixed.wav', them: 'english.wav' };
+
+test('final pass: a level change mid-pass re-spawns the engine and yields the same segments as an uninterrupted run', async () => {
+  const a = meeting(CALL); const plain = fakeServers();
+  const tx1 = fp.adaptiveTranscriber({ create: plain.create, threads: () => 8 });
+  await fp.runFinalPass({ dir: a.dir, transcriber: tx1, label: 'x' });
+  tx1.stop();
+  const want = JSON.parse(fs.readFileSync(path.join(a.dir, 'transcript.json'), 'utf8')).segments;
+  assert.ok(want.length >= 2, `fixture should give several segments, got ${want.length}`);
+  assert.equal(plain.spawned.length, 1);
+
+  const b = meeting(CALL); const changing = fakeServers();
+  let level = 8;
+  const tx2 = fp.adaptiveTranscriber({ create: changing.create, threads: () => level });
+  let n = 0;
+  await fp.runFinalPass({ dir: b.dir, transcriber: tx2, label: 'x', onProgress: (f) => { if (f > 0 && f < 1) { n += 1; if (n === 1) level = 2; } } });
+  tx2.stop();
+  const got = JSON.parse(fs.readFileSync(path.join(b.dir, 'transcript.json'), 'utf8')).segments;
+  assert.deepEqual(got, want);
+  assert.deepEqual(changing.spawned.map((s) => s.threads), [8, 2]);
+  assert.equal(changing.spawned[0].stopped, true, 'old engine stopped before the new one');
+  const decoded = (f) => f.spawned.reduce((k, s) => k + s.decoded, 0);
+  assert.equal(decoded(changing), decoded(plain), 'no segment decoded twice or skipped');
+  await assert.rejects(tx2.transcribe({ samples: new Int16Array(160) }, {}), /stopped/); // no re-spawn after quit
+});
+
+test('final pass with Parakeet: thread change mid-pass gives the same transcript', { skip, timeout: 600000 }, async () => {
+  const run = async (threads) => {
+    const { dir } = meeting(CALL);
+    const tx = fp.adaptiveTranscriber({ create: (t) => new ParakeetServer({ model: MODEL, threads: t, lowPriority: true }), threads });
+    try { await fp.runFinalPass({ dir, transcriber: tx, label: 'parakeet-v3' }); } finally { tx.stop(); }
+    return JSON.parse(fs.readFileSync(path.join(dir, 'transcript.json'), 'utf8')).segments;
+  };
+  const want = await run(() => 2);
+  let calls = 0;
+  const got = await run(() => (calls++ < 1 ? 1 : 2)); // 1 thread for the first segment, then 2
+  assert.deepEqual(got, want);
 });

@@ -28,7 +28,8 @@ test('tooltip: idle, recording mm:ss / h:mm:ss, finalising %', () => {
   assert.equal(tray.tooltip({}), 'callrec — idle');
   assert.equal(tray.tooltip({ recording: true, elapsedSec: 754 }), 'callrec — recording 12:34');
   assert.equal(tray.tooltip({ recording: true, elapsedSec: 3725 }), 'callrec — recording 1:02:05');
-  assert.equal(tray.tooltip({ finalising: 0.432 }), 'callrec — Finalising transcript… 43%');
+  assert.equal(tray.tooltip({ finalising: 0.432, cpu: 60 }), 'callrec — finalising 43% · CPU 60%');
+  assert.equal(tray.tooltip({ finalising: 0.432 }), 'callrec — finalising 43%');
 });
 
 test('menu: one start/stop item with the shortcut, show, folder, quit', () => {
@@ -38,6 +39,20 @@ test('menu: one start/stop item with the shortcut, show, folder, quit', () => {
   const rec = tray.menuTemplate({ recording: true, shortcut: 'CommandOrControl+Shift+R', platform: 'darwin', actions });
   assert.equal(rec[0].label, 'Stop recording\tCmd+Shift+R');
   assert.equal(rec[0].click, actions.toggle);
+});
+
+test('menu: "Finalising speed" submenu, current level ticked, pick calls speed()', () => {
+  const picked = [];
+  const actions = { toggle() {}, show() {}, openFolder() {}, quit() {}, speed: (p) => picked.push(p) };
+  const m = tray.menuTemplate({ cpu: 60, actions });
+  assert.deepEqual(m.map((i) => i.label || i.type), ['Start recording', 'Show callrec', 'Open recordings folder', 'Finalising speed', 'separator', 'Quit']);
+  const sub = m[3].submenu;
+  assert.deepEqual(sub.map((i) => i.label), ['20%', '40%', '60%', '80%', '100% (max)']);
+  assert.deepEqual(sub.map((i) => i.checked), [false, false, true, false, false]);
+  assert.ok(sub.every((i) => i.type === 'radio'));
+  sub[4].click();
+  assert.deepEqual(picked, [100]);
+  assert.equal(tray.menuTemplate({ actions }).find((i) => i.submenu).submenu[4].checked, true); // default 100%
 });
 
 test('icons: recording icon has a red dot, idle has none', () => {
@@ -72,9 +87,9 @@ test('tray: hidden window → left click shows it; menu toggles recording with t
   assert.equal(t.tip, 'callrec — recording 0:05');
   assert.notEqual(t.image, idleIcon);
   assert.equal(t.menu.items[0].label, 'Stop recording\tCtrl+Alt+Shift+R');
-  state = { ...state, recording: false, finalising: 0.5 };
+  state = { ...state, recording: false, finalising: 0.5, cpu: 100 };
   ctl.refresh();
-  assert.equal(t.tip, 'callrec — Finalising transcript… 50%');
+  assert.equal(t.tip, 'callrec — finalising 50% · CPU 100%');
   assert.equal(t.image, idleIcon);
   ctl.balloon('callrec', 'done');
   assert.equal(t.balloonShown.content, 'done');

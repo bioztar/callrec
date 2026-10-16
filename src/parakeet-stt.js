@@ -29,9 +29,14 @@ function isParakeetModel(p) {
 
 function defaultThreads() { return Math.max(1, Math.min(4, os.cpus().length - 1)); }
 
+/// Below-normal priority for a background engine process (best effort).
+function lowerPriority(pid, log = () => {}) {
+  try { os.setPriority(pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch (e) { log(`could not lower priority: ${e.message}`); }
+}
+
 class ParakeetServer {
-  constructor({ model, threads = defaultThreads(), log = () => {} }) {
-    this.model = model; this.threads = threads; this.log = log;
+  constructor({ model, threads = defaultThreads(), lowPriority = false, log = () => {} }) {
+    this.model = model; this.threads = threads; this.lowPriority = lowPriority; this.log = log;
     this.child = null; this.exited = null; this.pending = new Map(); this.nextId = 1;
   }
 
@@ -47,6 +52,7 @@ class ParakeetServer {
       DYLD_LIBRARY_PATH: `${lib}${sep}${process.env.DYLD_LIBRARY_PATH || ''}`,
     };
     this.child = fork(path.join(__dirname, 'parakeet-worker.js'), [], { env, serialization: 'advanced', stdio: ['ignore', 'ignore', 'pipe', 'ipc'], windowsHide: true });
+    if (this.lowPriority) lowerPriority(this.child.pid, this.log);
     let stderr = '';
     this.child.stderr.on('data', (d) => { stderr = (stderr + d).slice(-2000); });
     this.child.on('message', ({ id, ...msg }) => {
@@ -93,4 +99,4 @@ class ParakeetServer {
   }
 }
 
-module.exports = { ParakeetServer, isAvailable, isParakeetModel, addonDir };
+module.exports = { ParakeetServer, isAvailable, isParakeetModel, addonDir, lowerPriority };
