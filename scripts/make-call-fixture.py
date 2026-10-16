@@ -1,8 +1,11 @@
-# Two-speaker ES/EN call fixture: Me (es, davefx CC0) on the mic channel, Them (en, ljspeech PD)
-# on the system channel; the mic also re-hears Them through laptop speakers (-18 dB, 40 ms).
-import json, subprocess, sys, wave, numpy as np, random
+# Two-speaker ES/EN call fixture (test/fixtures/call): Me (es, davefx CC0) on the mic channel,
+# Them (en, ljspeech PD) on the system channel; the mic also re-hears Them through laptop
+# speakers (-18 dB, 40 ms). Needs `pip install piper-tts numpy`, ffmpeg, and the two voices:
+#   python scripts/make-call-fixture.py <dir with es_ES-davefx-medium.onnx + en_US-ljspeech-medium.onnx>
+import json, os, subprocess, sys, wave, numpy as np, random
 random.seed(7)
-V = '/home/ubuntu/scratch/voices/'
+V = os.path.join(sys.argv[1] if len(sys.argv) > 1 else 'voices', '')
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'test', 'fixtures', 'call')
 ME = 'es_ES-davefx-medium'; THEM = 'en_US-ljspeech-medium'
 TURNS = [
  ('THEM', ["Hi, thanks for joining.", "Can you hear me all right?"]),
@@ -47,7 +50,7 @@ TURNS = [
 ]
 SR = 16000
 def tts(voice, text):
-    raw = f'/tmp/p_{voice}.wav'
+    raw = os.path.join(OUT, f'.tmp-{voice}.wav')
     subprocess.run([sys.executable, '-m', 'piper', '-m', V + voice + '.onnx', '-f', raw], input=text.encode(), check=True, capture_output=True)
     out = subprocess.run(['ffmpeg', '-v', 'error', '-i', raw, '-ar', str(SR), '-ac', '1', '-f', 's16le', '-'], check=True, capture_output=True).stdout
     return np.frombuffer(out, dtype=np.int16).astype(np.float32)
@@ -73,8 +76,11 @@ them = mix(tracks['THEM']) * 0.8 + rng.normal(0, 25, n)
 echo = np.zeros(n, np.float32); d = int(0.04 * SR); echo[d:] = them[:-d] * 10 ** (-18 / 20)
 me = mix(tracks['ME']) * 0.8 + echo + rng.normal(0, 40, n)
 for name, y in (('me', me), ('them', them)):
-    with wave.open(f'/home/ubuntu/scratch/dialogue/{name}.wav', 'wb') as w:
+    with wave.open(os.path.join(OUT, f'{name}.wav'), 'wb') as w:
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(SR); w.writeframes(np.clip(y, -32768, 32767).astype('<i2').tobytes())
 ref.sort(key=lambda r: r['start'])
-json.dump({'durationSec': round(n / SR, 2), 'echo': {'gainDb': -18, 'delayMs': 40}, 'voices': {'ME': ME + ' (CC0)', 'THEM': THEM + ' (public domain)'}, 'lines': ref}, open('/home/ubuntu/scratch/dialogue/dialogue.json', 'w'), indent=1, ensure_ascii=False)
+json.dump({'durationSec': round(n / SR, 2), 'echo': {'gainDb': -18, 'delayMs': 40}, 'voices': {'ME': ME + ' (CC0)', 'THEM': THEM + ' (public domain)'}, 'lines': ref}, open(os.path.join(OUT, 'call.json'), 'w'), indent=1, ensure_ascii=False)
+for v in (ME, THEM):
+    f = os.path.join(OUT, f'.tmp-{v}.wav')
+    if os.path.exists(f): os.remove(f)
 print('duration', n / SR)
