@@ -227,7 +227,7 @@ function cancelDownload() {
 }
 
 // ---- recording ----
-async function start() {
+async function start(auto = null) {
   const engine = els.engine.value;
   const language = els.language.value;
   if (engine === 'deepgram' && !settings.hasDeepgramKey) { setStatus('Add your Deepgram key in Settings', 'error'); return; }
@@ -244,7 +244,7 @@ async function start() {
     els.permCard.hidden = false; els.toggle.disabled = false;
     return;
   }
-  const res = await api.sessionStart({ title: els.title.value, engine, language });
+  const res = await api.sessionStart({ title: auto ? auto.title : els.title.value, engine, language, autoCallId: auto ? auto.autoCallId : null });
   if (res.error) {
     streams.sys.getTracks().forEach((t) => t.stop()); streams.mic.getTracks().forEach((t) => t.stop());
     setStatus(res.error, 'error'); els.toggle.disabled = false;
@@ -383,6 +383,8 @@ function applySettings(s) {
   $('setEngine').value = s.engine;
   $('setLanguage').value = s.language;
   $('setShortcut').value = s.shortcut;
+  $('setShotShortcut').value = s.screenshotShortcut || '';
+  $('teamsApiNote').hidden = s.platform !== 'win32';
   $('keyState').textContent = s.hasDeepgramKey ? '(saved)' : '(not set)';
   if (!session) { els.engine.value = s.engine; els.language.value = s.language; }
   refreshLangNote();
@@ -481,6 +483,8 @@ async function refreshPermissions() {
   checkEngineModel(els.engine.value, els.language.value);
   api.on('toggle-recording', toggle);
   api.on('stop-recording', () => { if (session) stop(); });
+  // Teams call detected (main process): same path as a manual start, named after the call.
+  api.on('start-recording', (auto) => { if (!session && !els.toggle.disabled) start(auto); });
 // Quality pass after Stop (main process): progress, then the final transcript.
 api.on('final:state', (st) => {
   if (session) return;
@@ -524,6 +528,11 @@ api.on('final:state', (st) => {
     const res = await api.setSettings({ shortcut: $('setShortcut').value.trim() });
     applySettings(res.settings);
     $('shortcutState').textContent = res.shortcutOk ? '(applied)' : '(invalid or already taken — not registered)';
+  });
+  $('setShotShortcutSave').addEventListener('click', async () => {
+    const res = await api.setSettings({ screenshotShortcut: $('setShotShortcut').value.trim() });
+    applySettings(res.settings);
+    $('shotShortcutState').textContent = res.screenshotShortcutOk ? '(applied)' : '(invalid or already taken — not registered)';
   });
   $('testBtn').addEventListener('click', testAudio);
 }());

@@ -39,10 +39,15 @@ function speedMenu(cpu, pick) {
   return LEVELS.map((p) => ({ label: p === 100 ? '100% (max)' : `${p}%`, type: 'radio', checked: p === cpu, click: () => pick(p) }));
 }
 
-function menuTemplate({ recording = false, shortcut = '', platform = 'win32', cpu = DEFAULT_LEVEL, actions }) {
+function menuTemplate({ recording = false, shortcut = '', screenshotShortcut = '', autoRecordTeams = true, platform = 'win32', cpu = DEFAULT_LEVEL, actions }) {
   const keys = shortcutLabel(shortcut, platform);
+  const shotKeys = shortcutLabel(screenshotShortcut, platform);
   return [
     { label: `${recording ? 'Stop recording' : 'Start recording'}${keys ? `\t${keys}` : ''}`, click: actions.toggle },
+    ...(actions.screenshot ? [{ label: `Screenshot${shotKeys ? `\t${shotKeys}` : ''}`, click: actions.screenshot }] : []),
+    ...(platform === 'win32' && actions.autoRecord
+      ? [{ label: 'Auto-record Teams calls', type: 'checkbox', checked: Boolean(autoRecordTeams), click: (item) => actions.autoRecord(item ? item.checked : !autoRecordTeams) }]
+      : []),
     { label: 'Show callrec', click: actions.show },
     { label: 'Open recordings folder', click: actions.openFolder },
     ...(actions.speed ? [{ label: 'Finalising speed', submenu: speedMenu(cpu, actions.speed) }] : []),
@@ -96,11 +101,12 @@ function createTrayController({ Tray, Menu, nativeImage, platform, getState, act
     const st = getState();
     const tip = tooltip(st);
     if (tip !== last.tip) tray.setToolTip(tip);
-    if (st.recording !== last.recording || st.shortcut !== last.shortcut || st.cpu !== last.cpu) {
+    if (st.recording !== last.recording || st.shortcut !== last.shortcut || st.cpu !== last.cpu
+      || st.screenshotShortcut !== last.screenshotShortcut || st.autoRecordTeams !== last.autoRecordTeams) {
       tray.setImage(st.recording ? icons.recording : icons.idle);
       tray.setContextMenu(Menu.buildFromTemplate(menuTemplate({ ...st, platform, actions })));
     }
-    last = { tip, recording: st.recording, shortcut: st.shortcut, cpu: st.cpu };
+    last = { tip, recording: st.recording, shortcut: st.shortcut, cpu: st.cpu, screenshotShortcut: st.screenshotShortcut, autoRecordTeams: st.autoRecordTeams };
   }
   // macOS opens the context menu on click by itself; Windows/Linux: left click = window.
   if (platform !== 'darwin') tray.on('click', () => actions.show());

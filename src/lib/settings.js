@@ -8,6 +8,8 @@ const DEFAULTS = {
   engine: 'native',
   language: 'es',
   shortcut: 'CommandOrControl+Shift+R',
+  screenshotShortcut: 'Control+Alt+S',
+  autoRecordTeams: true,
 };
 
 /// JSON settings file; the Deepgram key is stored only as `deepgramKeyEnc`
@@ -33,11 +35,11 @@ function createSettings({ file, crypto, defaults = {} }) {
   return {
     /// Settings safe to send to the renderer: never includes the key.
     get() {
-      const { deepgramKeyEnc, ...rest } = readRaw();
-      return { ...base, ...rest, hasDeepgramKey: Boolean(deepgramKeyEnc) };
+      const { deepgramKeyEnc, teamsTokenEnc, ...rest } = readRaw();
+      return { ...base, ...rest, hasDeepgramKey: Boolean(deepgramKeyEnc), teamsApiPaired: Boolean(teamsTokenEnc) };
     },
     set(patch) {
-      const { deepgramKeyEnc, hasDeepgramKey, ...clean } = patch || {};
+      const { deepgramKeyEnc, hasDeepgramKey, teamsTokenEnc, teamsApiPaired, ...clean } = patch || {};
       write({ ...readRaw(), ...clean });
     },
     setDeepgramKey(key) {
@@ -50,6 +52,17 @@ function createSettings({ file, crypto, defaults = {} }) {
       const { deepgramKeyEnc } = readRaw();
       if (!deepgramKeyEnc) return '';
       try { return crypto.decrypt(Buffer.from(deepgramKeyEnc, 'base64')); } catch { return ''; }
+    },
+    /// Teams API pairing token, safeStorage-encrypted like the Deepgram key.
+    setTeamsToken(token) {
+      const raw = readRaw();
+      if (!token || !crypto.available()) { const { teamsTokenEnc, ...rest } = raw; write(rest); return; }
+      write({ ...raw, teamsTokenEnc: crypto.encrypt(token).toString('base64') });
+    },
+    getTeamsToken() {
+      const { teamsTokenEnc } = readRaw();
+      if (!teamsTokenEnc) return '';
+      try { return crypto.decrypt(Buffer.from(teamsTokenEnc, 'base64')); } catch { return ''; }
     },
   };
 }

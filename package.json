@@ -1,6 +1,6 @@
 {
   "name": "callrec",
-  "version": "0.3.1-rc.1",
+  "version": "0.4.0-rc.1",
   "private": true,
   "description": "Desktop meeting recorder: system audio + mic, live on-device transcript, folder per meeting.",
   "license": "MIT",
@@ -32,10 +32,12 @@
       "preload.js",
       "src/**/*",
       "package.json",
-      "LICENSE"
+      "LICENSE",
+      "!node_modules/koffi/build/koffi/{freebsd,openbsd,linux,musl}_*/**"
     ],
     "asarUnpack": [
-      "node_modules/sherpa-onnx-*/**"
+      "node_modules/sherpa-onnx-*/**",
+      "node_modules/koffi/**"
     ],
     "extraResources": [
       {
@@ -99,6 +101,8 @@
     "url": "https://github.com/bioztar/callrec.git"
   },
   "dependencies": {
-    "sherpa-onnx-node": "1.13.8"
+    "koffi": "2.16.3",
+    "sherpa-onnx-node": "1.13.8",
+    "ws": "8.18.3"
   }
 }

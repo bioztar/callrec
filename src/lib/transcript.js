@@ -32,17 +32,38 @@ function formatDuration(seconds) {
 }
 
 /// meta: { title, startedAt: Date, durationSec, engine, language, languageNote? }
+const KIND = { meeting: 'meeting', 'one-to-one': '1:1', group: 'group', unknown: 'unknown' };
+const clock = (d) => { const t = new Date(d); return `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}:${String(t.getSeconds()).padStart(2, '0')}`; };
+
+function callLines(call) {
+  if (!call) return [];
+  return [
+    `- Call: ${call.name} (${KIND[call.kind] || 'unknown'}, Teams)`,
+    `- Start: ${new Date(call.startedAt).toISOString()}`,
+    ...(call.endedAt ? [`- End: ${new Date(call.endedAt).toISOString()}`] : []),
+    `- Detected by: ${call.source === 'api' ? 'Teams API' : 'local signals (mic + window)'}`,
+  ];
+}
+
+/// Transcript lines with screenshot markers ([HH:MM:SS screenshot NNN]) at their time.
+function bodyLines(segments, markers = []) {
+  const rows = coalesce(segments).map((s) => ({ at: s.start, line: `[${mmss(s.start)}] ${SPEAKER_LABEL[s.speaker] || s.speaker}: ${s.text}` }));
+  for (const m of markers) rows.push({ at: m.at, line: `[${m.clock} ${m.text}]` });
+  return rows.sort((a, b) => a.at - b.at).map((r) => r.line);
+}
+
 function renderMarkdown(meta, segments) {
   const lines = [
     `# ${meta.title || 'Untitled meeting'}`,
     '',
     `- Date: ${meta.startedAt.toISOString()}`,
     `- Duration: ${formatDuration(meta.durationSec)}`,
+    ...callLines(meta.call),
     `- Engine: ${meta.engine}`,
     `- Language: ${meta.language}${meta.languageNote ? ` (${meta.languageNote})` : ''}`,
     '',
   ];
-  for (const s of coalesce(segments)) lines.push(`[${mmss(s.start)}] ${SPEAKER_LABEL[s.speaker] || s.speaker}: ${s.text}`);
+  lines.push(...bodyLines(segments, meta.markers));
   return `${lines.join('\n')}\n`;
 }
 
@@ -53,6 +74,8 @@ function renderJson(meta, segments) {
     durationSec: Math.round(meta.durationSec * 10) / 10,
     engine: meta.engine,
     language: meta.language,
+    ...(meta.call ? { call: meta.call } : {}),
+    ...(meta.markers && meta.markers.length ? { markers: meta.markers } : {}),
     segments: coalesce(segments).map((s) => ({
       start: Math.round(s.start * 10) / 10,
       end: Math.round(s.end * 10) / 10,
@@ -63,4 +86,4 @@ function renderJson(meta, segments) {
   }, null, 2)}\n`;
 }
 
-module.exports = { coalesce, mmss, formatDuration, renderMarkdown, renderJson, SPEAKER_LABEL };
+module.exports = { coalesce, mmss, formatDuration, renderMarkdown, renderJson, SPEAKER_LABEL, clock };

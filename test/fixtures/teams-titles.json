@@ -1,0 +1,21 @@
+{
+  "_note": "Teams (new client, ms-teams.exe) top-level window titles. source: assumed = from public descriptions, real = shape captured on Vitaly's laptop with invented names. Never commit real subjects, names or companies.",
+  "titles": [
+    { "title": "Weekly sync | Microsoft Teams", "call": true, "kind": "meeting", "name": "Weekly sync", "source": "assumed" },
+    { "title": "Q4 roadmap review | Microsoft Teams (work or school)", "call": true, "kind": "meeting", "name": "Q4 roadmap review", "source": "assumed" },
+    { "title": "Meeting in \"General\" | Microsoft Teams", "call": true, "kind": "meeting", "name": "General", "source": "assumed" },
+    { "title": "Meeting with Ana Pérez | Microsoft Teams", "call": true, "kind": "meeting", "name": "Ana Pérez", "source": "assumed" },
+    { "title": "Ana Pérez | Microsoft Teams", "call": true, "kind": "one-to-one", "name": "Ana Pérez", "source": "assumed" },
+    { "title": "Jan van der Berg (External) | Microsoft Teams", "call": true, "kind": "one-to-one", "name": "Jan van der Berg", "source": "assumed" },
+    { "title": "Ana Pérez, Ben Ortiz, Chloé Martin | Microsoft Teams", "call": true, "kind": "group", "name": "Ana Pérez, Ben Ortiz, Chloé Martin", "source": "assumed" },
+    { "title": "Ana Pérez and 3 others | Microsoft Teams", "call": true, "kind": "group", "name": "Ana Pérez and 3 others", "source": "assumed" },
+    { "title": "Launch crew | Microsoft Teams", "call": true, "kind": "meeting", "name": "Launch crew", "source": "assumed" },
+    { "title": "Chat | Ana Pérez | Microsoft Teams", "call": false, "source": "assumed" },
+    { "title": "Calendar | Calendar | Microsoft Teams", "call": false, "source": "assumed" },
+    { "title": "Activity | Microsoft Teams", "call": false, "source": "assumed" },
+    { "title": "Microsoft Teams", "call": false, "source": "assumed" },
+    { "title": "Meeting compact view | Microsoft Teams", "call": false, "source": "assumed" },
+    { "title": "Sharing control bar | Microsoft Teams", "call": false, "source": "assumed" },
+    { "title": "", "call": false, "source": "assumed" }
+  ]
+}

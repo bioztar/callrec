@@ -98,9 +98,49 @@ artifact). On the `windows-latest` runner (4 vCPU, AMD EPYC 7763):
 
 The fixtures are short, so the WER spread is small; the only Spanish error left is "Hola" heard as "El".
 
+## Auto-record Teams calls (Windows)
+
+When a Microsoft Teams call starts, callrec starts recording by itself, exactly as if you had pressed Start, and
+shows a notification **"Recording: Weekly sync"** with **Stop** and **Discard**. It works for scheduled meetings,
+1:1 calls and group calls in the new Teams app (`ms-teams.exe`). Turn it off with **Auto-record Teams calls** in the
+tray menu; it is on by default.
+
+- **Name:** the folder is `YYYY-MM-DD HH.MM — <name>`. The name is the meeting subject, `Call with <person>` for a
+  1:1, the group or chat name for a group call, or `Teams call` when the title says nothing. The transcript header
+  adds the call type, its start and end time, and how it was detected.
+- **End:** recording stops about 15 s after Teams releases the microphone and the call window is gone, so a short
+  drop and reconnect stays one recording.
+- **Stop** keeps it stopped for the rest of that call. **Discard** stops it and deletes the folder.
+- **Short calls:** an auto-recording under a minute asks "Keep this 40 s recording?". If you ignore the question,
+  the recording is kept. Manual recordings are never asked about.
+- **Already recording by hand:** callrec does not start a second recording and does not rename yours.
+
+**What is read:** only the titles of Teams' own windows and Windows' "Teams is using the microphone" flag
+(`HKCU\…\CapabilityAccessManager\ConsentStore\microphone`). Nothing leaves the PC: no Microsoft Graph, no sign-in.
+
+**Optional, more reliable detection:** in Teams, open Settings → Privacy → **Manage API** and turn it on. The first
+time callrec sees a meeting, Teams asks you once to allow it. callrec then also reads Teams' "in a meeting" state
+over the local connection `ws://127.0.0.1:8124`, and keeps the pairing token encrypted on this PC. Without it,
+callrec uses the local signals above, with no prompts.
+
+Teams in a web browser is not supported.
+
+## Screenshots
+
+**Screenshot** in the tray menu, or **Ctrl+Alt+S** (change it in Settings), saves the Teams call window at full size,
+including a shared screen or slides. If there is no call window, or it is minimised, callrec captures the screen
+under the mouse pointer and says so. A "Screenshot saved" notification opens the folder when clicked.
+
+- While recording: `<meeting folder>\screenshots\001 10.02.03.png`, and the draft and final transcript get a
+  `[10:02:03 screenshot 001]` line at that moment.
+- Otherwise: `<recordings>\Screenshots\YYYY-MM-DD HH.MM.SS.png`.
+
+To show notifications with buttons from the portable exe, callrec adds a per-user Start-menu shortcut and registers
+the `callrec://` link handler for your account. Neither needs admin rights.
+
 ## Output
 
-Meetings are saved to `<root>/YYYY-MM-DD HHmm <title>/`. The default root is `Documents/callrec` in your home folder. Audio chunks
+Meetings are saved to `<root>/YYYY-MM-DD HHmm <title>/` (Teams auto-recordings: `<root>/YYYY-MM-DD HH.MM — <call name>/`). The default root is `Documents/callrec` in your home folder. Audio chunks
 (every 3 s) and every finished transcript line are written as they arrive, so a crash keeps everything recorded so far.
 
 | File | What |
@@ -110,6 +150,7 @@ Meetings are saved to `<root>/YYYY-MM-DD HHmm <title>/`. The default root is `Do
 | `transcript.draft.md`, `transcript.draft.json` | the live draft, kept after the final pass |
 | `audio-me.wav`, `audio-them.wav` | each side as 16 kHz WAV (~2 MB per minute each), only until the final pass succeeds; then deleted |
 | `final-pass.json` | final-pass status |
+| `screenshots/` | screenshots taken during the call |
 
 If you quit during the final pass, it resumes on the next launch; the draft is never overwritten. If the Final model
 is not installed yet, the meeting waits until it is (the WAV files stay). After three failed attempts callrec gives
@@ -119,7 +160,7 @@ When the mic picks up the other side through your speakers, that echo is dropped
 ## Privacy
 
 With the Whisper and Native engines, **audio never leaves the device**. With Deepgram, audio is streamed to Deepgram's
-API under your key. callrec has no telemetry. It makes no other network calls apart from the one-time model download
+API under your key. callrec has no telemetry. It makes no other network calls apart from the optional local Teams API on `127.0.0.1:8124` and the one-time model download
 (and Apple's own model download on macOS).
 
 ## Build from source
