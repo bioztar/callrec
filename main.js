@@ -228,7 +228,7 @@ function createTray() {
         toggle: toggleRecording,
         screenshot: takeScreenshot,
         autoRecord: (on) => { settings.set({ autoRecordTeams: on }); trayCtl.refresh(); }, // future calls only
-        discard: () => stopAutoRecording(true),
+        discard: confirmTrayDiscard,
         openFolder: openRecordingsFolder,
         quit: requestQuit,
         speed: (p) => cpuDial.pick(p),
@@ -541,6 +541,15 @@ function autoRecordingStarted(call, dir) {
     { label: 'Discard', action: 'discard', ttlMs: DAY, valid: live, run: () => stopAutoRecording(true) },
   ]);
   if (trayCtl) trayCtl.refresh();
+}
+
+/// Tray "Discard this recording": asks first (default Keep); the toast Discard
+/// at call start stays one-click.
+async function confirmTrayDiscard() {
+  const dir = autoCall && autoCall.dir;
+  if (!dir || !writer || writer.dir !== dir) return;
+  const ok = await toastLib.confirmDiscard((o) => dialog.showMessageBox(o), (Date.now() - startedAtMs) / 1000);
+  if (ok && autoCall && autoCall.dir === dir) stopAutoRecording(true);
 }
 
 function stopAutoRecording(discard) {

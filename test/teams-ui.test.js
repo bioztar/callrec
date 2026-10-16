@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { toastXml, parseActionArgv, needsShortCallPrompt, shortCallText, createActionRegistry } = require('../src/lib/toast');
+const { toastXml, parseActionArgv, needsShortCallPrompt, shortCallText, createActionRegistry, discardDialog, confirmDiscard } = require('../src/lib/toast');
 const { screenshotTarget, pickCallSource, pickScreenSource, fullSize, windowThumbSize } = require('../src/lib/screenshot');
 const { createTeamsApi, apiUrl } = require('../src/lib/teams-api');
 const { menuTemplate } = require('../src/lib/tray');
@@ -182,4 +182,15 @@ test('tray: Stop + Discard for an auto-recording', () => {
 test('screenshot thumbnail: the window\'s own size', () => {
   assert.deepEqual(windowThumbSize({ title: 'x', width: 1280, height: 720 }, []), { width: 1280, height: 720 });
   assert.deepEqual(windowThumbSize({ title: 'x' }, [{ size: { width: 1920, height: 1080 }, scaleFactor: 1 }]), { width: 1920, height: 1080 });
+});
+
+test('tray Discard asks first: Delete / Keep, default Keep', async () => {
+  const o = discardDialog(12 * 60 + 10);
+  assert.equal(o.message, 'Delete this recording (12 min) and its transcript? This cannot be undone.');
+  assert.deepEqual(o.buttons, ['Delete', 'Keep']);
+  assert.equal(o.buttons[o.defaultId], 'Keep');
+  assert.equal(o.buttons[o.cancelId], 'Keep', 'Esc / closing the dialog keeps it');
+  assert.match(discardDialog(40).message, /\(40 s\)/);
+  assert.equal(await confirmDiscard(async () => ({ response: 0 }), 60), true);
+  assert.equal(await confirmDiscard(async () => ({ response: 1 }), 60), false);
 });

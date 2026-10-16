@@ -112,6 +112,8 @@ tray menu; it is on by default. Turning it off affects the next call, not one th
 - **End:** recording stops about 15 s after Teams releases the microphone and the call window is gone, so a short
   drop and reconnect stays one recording. A Teams window callrec does not recognise never keeps a recording going.
 - **Stop** keeps it stopped for the rest of that call. **Discard** stops it and deletes the folder.
+  In the notification at call start that is one click; the tray's **Discard this recording** asks
+  first ("Delete this recording (12 min) and its transcript?", default **Keep**).
 - **Short calls:** an auto-recording under a minute asks "Keep this 40 s recording?". If you ignore the question,
   the recording is kept. Manual recordings are never asked about.
 - **Already recording by hand:** callrec does not start a second recording and does not rename yours.

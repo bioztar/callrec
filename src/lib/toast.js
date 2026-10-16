@@ -73,4 +73,27 @@ function shortCallText(durationSec) {
   return `Keep this ${s} s recording?`;
 }
 
-module.exports = { toastXml, actionUrl, parseActionArgv, createActionRegistry, ACTION_TTL_MS, needsShortCallPrompt, shortCallText, SCHEME, SHORT_CALL_SEC };
+function durationText(sec) {
+  const s = Math.max(1, Math.round(sec));
+  return s < 60 ? `${s} s` : `${Math.round(s / 60)} min`;
+}
+
+/// Native dialog options for the tray's "Discard this recording": Keep is the default.
+function discardDialog(durationSec) {
+  return {
+    type: 'warning',
+    buttons: ['Delete', 'Keep'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+    message: `Delete this recording (${durationText(durationSec)}) and its transcript? This cannot be undone.`,
+  };
+}
+
+/// Resolves true only if the user explicitly picked Delete.
+async function confirmDiscard(showMessageBox, durationSec) {
+  const { response } = await showMessageBox(discardDialog(durationSec));
+  return response === 0;
+}
+
+module.exports = { toastXml, actionUrl, parseActionArgv, createActionRegistry, ACTION_TTL_MS, needsShortCallPrompt, shortCallText, discardDialog, confirmDiscard, SCHEME, SHORT_CALL_SEC };
