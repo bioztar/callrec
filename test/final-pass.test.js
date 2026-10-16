@@ -166,3 +166,72 @@ test('final pass with Parakeet: thread change mid-pass gives the same transcript
   const got = await run(() => (calls++ < 1 ? 1 : 2)); // 1 thread for the first segment, then 2
   assert.deepEqual(got, want);
 });
+
+/// The call fixture as a stopped meeting (both channels, Them 0.5 s after Me).
+function callMeeting() {
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, 'transcript.md'), DRAFT);
+  const rec = new ChannelRecorder(dir);
+  for (const [spk, f, off] of [['ME', 'me.wav', 0], ['THEM', 'them.wav', 0]]) {
+    const { samples } = readWav(fs.readFileSync(path.join(FIX, 'call', f)));
+    for (let i = 0; i < samples.length; i += 16000) rec.add(spk, samples.subarray(i, i + 16000), off);
+  }
+  fp.prepareJob(dir, { meta: { title: 'Call', startedAt: new Date('2026-10-15T10:00:00Z'), durationSec: 246, engine: 'Whisper small', language: 'mixed' }, offsets: rec.close(), language: 'mixed' });
+  return dir;
+}
+
+test('whisper final pass: packed windows, Them first, echo skipped before decoding, stats + ETA', async () => {
+  const dir = callMeeting();
+  const order = []; const wins = [];
+  let clock = 0;
+  const tx = {
+    stats: { requests: 0, threads: [{ atSec: 0, threads: 8, level: 100 }] },
+    async transcribe() { throw new Error('Whisper path must use packed windows'); },
+    async transcribeWindow(w) {
+      tx.stats.requests += 1; clock += 4000;
+      wins.push(w.samples.length / 16000);
+      return w.parts.map((p) => { order.push(p.start); const k = order.length; return { index: p.index, text: `alfa${k} beta${k} gamma${k}` }; });
+    },
+  };
+  const progress = []; const logs = [];
+  const job = await fp.runFinalPass({ dir, transcriber: tx, label: 'Whisper large-v3-turbo', whisper: true, now: () => clock, log: (m) => logs.push(m), onProgress: (f, i) => progress.push([f, i.etaSec]) });
+  const ref = JSON.parse(fs.readFileSync(path.join(FIX, 'call', 'call.json'), 'utf8'));
+  const segs = JSON.parse(fs.readFileSync(path.join(dir, 'transcript.json'), 'utf8')).segments;
+  assert.ok(wins.every((s) => s <= 28));
+  // Every real line comes back once, from the right speaker, at its own time.
+  // (Lines the VAD itself never cut out, e.g. a 0.4 s "Vale.", are not the packer's business.)
+  const cut = { ME: fp.utterances(readWav(fs.readFileSync(path.join(FIX, 'call', 'me.wav'))).samples), THEM: fp.utterances(readWav(fs.readFileSync(path.join(FIX, 'call', 'them.wav'))).samples) };
+  const heard = (l) => cut[l.speaker].some((u) => u.start < l.end && u.end > l.start);
+  for (const l of ref.lines.filter((x) => !x.overlap && heard(x))) {
+    const hit = segs.filter((s) => s.speaker === l.speaker && s.start < l.end && s.end > l.start);
+    assert.ok(hit.length >= 1, `${l.speaker} ${l.start}: ${l.text}`);
+  }
+  const texts = segs.map((s) => `${s.speaker} ${s.text}`);
+  assert.equal(new Set(texts).size, texts.length, 'no duplicates');
+  assert.ok(segs.every((s) => s.speaker === 'THEM' || ref.lines.some((l) => l.speaker === 'ME' && s.start < l.end && s.end > l.start)), 'no Me echo line');
+  const st = job.stats;
+  assert.equal(fp.readJob(dir).stats.packedWindows, wins.length);
+  assert.equal(st.requests, wins.length);
+  assert.ok(st.echoSkipped >= 30 && st.echoSkippedSeconds > 60, JSON.stringify(st));
+  assert.equal(st.audioSeconds, 245.98);
+  assert.equal(st.wallSeconds, wins.length * 4);
+  assert.equal(st.rtf, Math.round((st.wallSeconds / st.audioSeconds) * 1000) / 1000);
+  assert.deepEqual(st.threads, [{ atSec: 0, threads: 8, level: 100 }]);
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /final pass done: Whisper large-v3-turbo · 245\.98 s audio .* RTF [\d.]+ · \d+ requests \/ \d+ windows for \d+ utterances · threads 8 \(100%\) · echo skipped [\d.]+ s/);
+  assert.equal(progress[0][1], null);
+  assert.ok(progress.some(([, eta]) => eta > 0), 'an ETA once there is a measured rate');
+  assert.deepEqual(progress[progress.length - 1], [1, 0]);
+  // Them's windows were decoded before any of Me's.
+  const firstMe = segs.find((s) => s.speaker === 'ME');
+  assert.ok(order.indexOf(firstMe.start) > order.indexOf(segs.filter((s) => s.speaker === 'THEM').pop().start));
+});
+
+test('parakeet final pass is unchanged: one request per utterance, no pre-echo skip', async () => {
+  const dir = callMeeting();
+  let n = 0;
+  const job = await fp.runFinalPass({ dir, transcriber: { async transcribe() { n += 1; return `frase ${n}`; } }, label: 'Parakeet' });
+  assert.equal(job.stats.packedWindows, null);
+  assert.equal(job.stats.echoSkipped, 0);
+  assert.equal(n, job.stats.utterances);
+});

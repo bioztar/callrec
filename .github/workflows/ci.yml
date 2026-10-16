@@ -42,6 +42,46 @@ jobs:
           path: bench-${{ matrix.os }}.json
           if-no-files-found: ignore
 
+  whisper-speed:
+    name: Whisper final-pass speed (windows-latest, ${{ matrix.toolchain }})
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [msvc, clangcl]
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - uses: ./.github/actions/whisper
+        with:
+          models: large-v3-turbo-q5_0 large-v3-q5_0 parakeet-tdt-0.6b-v3
+          toolchain: ${{ matrix.toolchain }}
+      - name: Static, no redistributable (dumpbin /dependents)
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          $deps = & $dumpbin.FullName /dependents vendor\whisper\whisper-server.exe | Out-String
+          Write-Output $deps
+          if ($deps -match '(?i)(vcruntime|msvcp|ucrtbase|libomp|clang_rt)[^\s]*\.dll') { throw "whisper-server.exe needs a redistributable DLL" }
+      - name: Call fixture, 100 % (turbo + Parakeet full 4 min; large-v3 on the first 60 s)
+        shell: bash
+        run: |
+          echo "### whisper.cpp built with ${{ matrix.toolchain }}" >> "$GITHUB_STEP_SUMMARY"
+          npm run --silent bench:call -- --models large-v3-turbo-q5_0,parakeet-tdt-0.6b-v3 --json call-${{ matrix.toolchain }}.json | tee -a "$GITHUB_STEP_SUMMARY"
+          npm run --silent bench:call -- --models large-v3-q5_0 --sec 60 --json call-large-${{ matrix.toolchain }}.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: whisper-speed-${{ matrix.toolchain }}
+          path: call-*.json
+          if-no-files-found: ignore
+
   windows-smoke:
     name: Windows packaged-app smoke
     runs-on: windows-latest
