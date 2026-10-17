@@ -14,6 +14,9 @@ const { isEcho } = require('./echo');
 const protocol = require('./whisper-protocol');
 const { pcm16ToWav } = require('./wav');
 const { readChannel, channelFiles } = require('./channel-audio');
+const { pack, split, timedWords } = require('./whisper-pack');
+const { preEcho } = require('./echo-pcm');
+const { etaSec } = require('./eta');
 
 const JOB = 'final-pass.json';
 const SR = 16000;
@@ -37,29 +40,68 @@ function utterances(samples) {
   return out;
 }
 
-/// A WhisperServer / ParakeetServer as a final-pass transcriber.
-function serverTranscriber(server) {
-  return {
+/// A WhisperServer / ParakeetServer as a final-pass transcriber. `stats.requests`
+/// counts every engine call (a `mixed` retry is a second one).
+function serverTranscriber(server, stats = { requests: 0 }) {
+  async function decode(samples, language) {
+    const wav = pcm16ToWav(samples, SR);
+    const m = protocol.mode(language);
+    stats.requests += 1;
+    let reply = await server.transcribe(wav, { language: m.request });
+    if (protocol.needsRetry(reply, language)) {
+      stats.requests += 1;
+      reply = await server.transcribe(wav, { language: m.fallback });
+    }
+    return reply;
+  }
+  const api = {
+    stats,
     async transcribe(seg, { language }) {
-      const wav = pcm16ToWav(seg.samples, SR);
-      const m = protocol.mode(language);
-      let reply = await server.transcribe(wav, { language: m.request });
-      if (protocol.needsRetry(reply, language)) reply = await server.transcribe(wav, { language: m.fallback });
-      const fin = protocol.toFinal(reply, seg);
+      const fin = protocol.toFinal(await decode(seg.samples, language), seg);
       return fin ? fin.text : null;
     },
+    /// One request for a packed window (Whisper) → `[{ index, text | null }]` per utterance.
+    /// Utterances that come back empty (Whisper merged, skipped or stopped early,
+    /// or the reply had no word times to split by) are decoded again: re-packed
+    /// once if there are several, then on their own, so packing never loses
+    /// speech a solo request would have kept. `stats.redecodes` counts the extra requests.
+    async transcribeWindow(win, { language }, depth = 0) {
+      const reply = await decode(win.samples, language);
+      const many = win.parts.length > 1;
+      const parts = many && !timedWords(reply, { keep: protocol.isSpeech })
+        ? win.parts.map((p) => ({ index: p.index, text: '' })) : splitReply(win, reply);
+      const out = parts.map((p, i) => ({ index: p.index, text: protocol.usableText(p.text, win.parts[i].len) }));
+      const missing = many ? win.parts.filter((p, i) => out[i].text == null && p.samples) : [];
+      const fill = (index, text) => { out.find((o) => o.index === index).text = text; };
+      if (missing.length > 1 && depth === 0) {
+        for (const w of pack(missing.map((p) => ({ samples: p.samples, start: p.start, end: p.end })))) {
+          stats.redecodes = (stats.redecodes || 0) + 1;
+          const again = await api.transcribeWindow(w, { language }, depth + 1);
+          again.forEach((r) => fill(missing[r.index].index, r.text));
+        }
+      } else {
+        for (const p of missing) {
+          stats.redecodes = (stats.redecodes || 0) + 1;
+          fill(p.index, await api.transcribe({ samples: p.samples, start: p.start, end: p.end }, { language }));
+        }
+      }
+      return out;
+    },
   };
+  return api;
 }
 
-/// Runs the pass for one meeting folder. `transcriber.transcribe(seg, { language })`
-/// → text | null. `label` names the final model in the transcript header.
-/// Transcriber that follows a CPU level while it runs: before each segment it
-/// re-spawns the engine if `threads()` changed (the pass decodes segment by
-/// segment, so nothing is lost or decoded twice).
-function adaptiveTranscriber({ create, threads, log = () => {} }) {
+function splitReply(win, reply) { return split(win, reply, { keep: protocol.isSpeech }); }
+
+/// Transcriber that follows a CPU level while it runs: before each request it
+/// re-spawns the engine if `threads()` changed (the pass decodes request by
+/// request, so nothing is lost or decoded twice). `stats.threads` is the history.
+function adaptiveTranscriber({ create, threads, level = () => null, log = () => {}, now = Date.now }) {
   let server = null;
   let at = 0;
   let stopped = false;
+  const t0 = now();
+  const stats = { requests: 0, threads: [] };
   async function ensure() {
     if (stopped) throw new Error('final pass stopped');
     const want = threads();
@@ -67,48 +109,114 @@ function adaptiveTranscriber({ create, threads, log = () => {} }) {
     if (server) { log(`final pass: ${at} → ${want} threads`); server.stop(); }
     server = create(want);
     at = want;
+    stats.threads.push({ atSec: round((now() - t0) / 1000), threads: want, level: level() });
     await server.start();
     return server;
   }
   return {
     get threads() { return at; },
-    async transcribe(seg, opts) { return serverTranscriber(await ensure()).transcribe(seg, opts); },
+    stats,
+    async transcribe(seg, opts) { return serverTranscriber(await ensure(), stats).transcribe(seg, opts); },
+    async transcribeWindow(win, opts) { return serverTranscriber(await ensure(), stats).transcribeWindow(win, opts); },
     stop() { stopped = true; if (server) server.stop(); server = null; },
   };
 }
 
-async function runFinalPass({ dir, transcriber, label, onProgress = () => {} }) {
+/// Runs the pass for one meeting folder. `transcriber.transcribe(seg, { language })`
+/// → text | null; with `whisper: true` it is fed packed windows instead
+/// (`transcribeWindow`) and mic clips that only re-hear THEM are skipped before
+/// decoding. `label` names the final model in the transcript header.
+/// `onProgress(fraction, { etaSec })`.
+async function runFinalPass({ dir, transcriber, label, whisper = false, onProgress = () => {}, log = () => {}, now = Date.now }) {
   const job = readJob(dir);
   if (!job) throw new Error(`no ${JOB} in ${dir}`);
   if (job.status === 'done') return job;
   writeJob(dir, { ...job, status: 'running' });
-  const channels = channelFiles(dir).map((c) => ({ ...c, segs: utterances(readChannel(c.file)) }));
+  const t0 = now();
+  // THEM first: its speech is what the mic's echo is checked against.
+  const channels = channelFiles(dir).map((c) => {
+    const samples = readChannel(c.file);
+    return { ...c, samples, off: Number(job.offsets && job.offsets[c.speaker]) || 0, segs: utterances(samples) };
+  }).sort((a, b) => (b.speaker === 'THEM') - (a.speaker === 'THEM'));
   const total = channels.reduce((n, c) => n + c.segs.reduce((m, s) => m + (s.end - s.start), 0), 0) || 1;
+  const audioSec = channels.reduce((n, c) => Math.max(n, c.off + c.samples.length / SR), 0);
   let done = 0;
+  const stats = { requests: 0, utterances: 0, packedWindows: 0, echoSkipped: 0, echoSkippedSeconds: 0 };
   const segments = [];
-  onProgress(0);
+  const progress = () => onProgress(Math.min(0.99, done / total), { etaSec: etaSec({ done, total, elapsedSec: (now() - t0) / 1000 }) });
+  onProgress(0, { etaSec: null });
+  const them = channels.find((c) => c.speaker === 'THEM');
+  let themSpans = [];
   for (const c of channels) {
-    const off = Number(job.offsets && job.offsets[c.speaker]) || 0;
-    for (const s of c.segs) {
-      const text = await transcriber.transcribe(s, { language: job.language });
-      if (text) segments.push({ speaker: c.speaker, start: round(off + s.start), end: round(off + s.end), text });
-      done += s.end - s.start;
-      onProgress(Math.min(0.99, done / total));
+    let segs = c.segs.map((s) => ({ ...s, start: c.off + s.start, end: c.off + s.end }));
+    stats.utterances += segs.length;
+    if (whisper && c.speaker === 'ME' && them && themSpans.length) {
+      const ref = { samples: them.samples, offset: them.off };
+      segs = segs.filter((s) => {
+        if (!preEcho(s, ref, themSpans).echo) return true;
+        stats.echoSkipped += 1;
+        stats.echoSkippedSeconds += s.end - s.start;
+        done += s.end - s.start;
+        return false;
+      });
+      progress();
     }
+    const add = (s, text) => { if (text) segments.push({ speaker: c.speaker, start: round(s.start), end: round(s.end), text }); };
+    if (whisper) {
+      for (const w of pack(segs)) {
+        stats.packedWindows += 1;
+        const parts = await transcriber.transcribeWindow(w, { language: job.language });
+        parts.forEach((p) => add(segs[p.index], p.text));
+        done += w.parts.reduce((n, p) => n + (segs[p.index].end - segs[p.index].start), 0);
+        progress();
+      }
+    } else {
+      for (const s of segs) {
+        add(s, await transcriber.transcribe(s, { language: job.language }));
+        done += s.end - s.start;
+        progress();
+      }
+    }
+    if (c.speaker === 'THEM') themSpans = segments.filter((s) => s.speaker === 'THEM');
   }
-  // Mic lines that re-heard the other side through the speakers.
+  // Mic lines that re-heard the other side through the speakers (text check).
   const thems = segments.filter((s) => s.speaker === 'THEM');
   const kept = segments.filter((s) => s.speaker === 'THEM' || !isEcho(s, thems)).sort((a, b) => a.start - b.start);
   keepDraft(dir);
   const meta = { ...job.meta, startedAt: new Date(job.meta.startedAt), engine: `${label} (final pass; live draft: ${job.meta.engine})` };
   writeAtomic(path.join(dir, 'transcript.json'), renderJson(meta, kept));
   writeAtomic(path.join(dir, 'transcript.md'), renderMarkdown(meta, kept));
-  const finished = { ...readJob(dir), status: 'done', model: label, segments: kept.length };
+  const wallSec = (now() - t0) / 1000;
+  const ts = transcriber.stats || {};
+  const summary = {
+    model: label,
+    threads: ts.threads || [],
+    audioSeconds: round(audioSec),
+    speechSeconds: round(total),
+    wallSeconds: round(wallSec),
+    rtf: audioSec ? Math.round((wallSec / audioSec) * 1000) / 1000 : null,
+    requests: ts.requests != null ? ts.requests : null,
+    utterances: stats.utterances,
+    packedWindows: whisper ? stats.packedWindows : null,
+    redecodes: whisper ? (ts.redecodes || 0) : null,
+    echoSkipped: stats.echoSkipped,
+    echoSkippedSeconds: round(stats.echoSkippedSeconds),
+  };
+  const finished = { ...readJob(dir), status: 'done', model: label, segments: kept.length, stats: summary };
   writeJob(dir, finished);
+  log(passLine(summary));
   // The per-channel audio was only kept for this pass (audio.webm stays).
   channels.forEach((c) => fs.rmSync(c.file, { force: true }));
-  onProgress(1);
+  onProgress(1, { etaSec: 0 });
   return finished;
+}
+
+/// The one log line per pass: enough to tell later why it was slow.
+function passLine(s) {
+  const th = s.threads.length ? s.threads.map((t) => `${t.threads}${t.level != null ? ` (${t.level}%)` : ''}`).join(' → ') : '?';
+  return `final pass done: ${s.model} · ${s.audioSeconds} s audio (${s.speechSeconds} s speech) in ${s.wallSeconds} s · RTF ${s.rtf}`
+    + ` · ${s.requests} requests${s.packedWindows != null ? ` / ${s.packedWindows} windows${s.redecodes ? ` (+${s.redecodes} re-decodes)` : ''}` : ''} for ${s.utterances} utterances`
+    + ` · threads ${th} · echo skipped ${s.echoSkippedSeconds} s`;
 }
 
 /// Copies the live transcript to transcript.draft.* once; never overwrites it.
@@ -148,7 +256,7 @@ function createFinalQueue({ file, run, onState = () => {}, onDone = () => {}, on
         writeJob(dir, { ...job, attempts: (job.attempts || 0) + 1 });
         try {
           onState({ dir, fraction: 0 });
-          const res = await run(dir, (fraction) => onState({ dir, fraction }));
+          const res = await run(dir, (fraction, info = {}) => onState({ dir, fraction, ...info }));
           drop(dir);
           onDone(dir, res);
         } catch (err) {
@@ -174,4 +282,4 @@ function createFinalQueue({ file, run, onState = () => {}, onDone = () => {}, on
   };
 }
 
-module.exports = { prepareJob, runFinalPass, serverTranscriber, createFinalQueue, readJob, utterances, keepDraft, JOB, adaptiveTranscriber };
+module.exports = { prepareJob, runFinalPass, serverTranscriber, createFinalQueue, readJob, utterances, keepDraft, JOB, adaptiveTranscriber, passLine };

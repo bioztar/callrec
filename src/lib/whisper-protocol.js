@@ -56,13 +56,23 @@ function isHallucination(text, durationSec = Infinity) {
   return durationSec < 4 && HALLUCINATIONS.includes(n);
 }
 
+/// A segment Whisper itself thinks is silence is dropped (keeps real words in noisy clips).
+function isSpeech(s) { return !(s.no_speech_prob > 0.8 && s.avg_logprob < -1); }
+
+/// Cleaned text of one utterance, or null when nothing is worth writing.
+function usableText(text, durationSec) {
+  const t = cleanText(text);
+  return /[\p{L}\p{N}]/u.test(t) && !isHallucination(t, durationSec) ? t : null;
+}
+
 /// verbose_json + the segment that produced it → `final` message, or null when
 /// there is nothing worth writing. Times are the stream offsets of the clip.
 function toFinal(reply, { start, end }) {
   const segs = Array.isArray(reply && reply.segments) ? reply.segments : [];
-  // A segment Whisper itself thinks is silence is dropped (keeps real words in noisy clips).
   const kept = segs.length
-    ? segs.filter((s) => !(s.no_speech_prob > 0.8 && s.avg_logprob < -1)).map((s) => s.text).join(' ')
+    // Segment texts carry their own leading space; a word split across two
+    // segments ("grab" + "ación") must not get one in the middle.
+    ? segs.filter(isSpeech).map((s) => s.text).join('').replace(/([.!?,;:])(\p{L})/gu, '$1 $2')
     : (reply && reply.text) || '';
   const text = cleanText(kept);
   if (!/[\p{L}\p{N}]/u.test(text) || isHallucination(text, end - start)) return null;
@@ -79,4 +89,4 @@ function needsRetry(reply, language) {
 
 function round(x) { return Math.round(x * 100) / 100; }
 
-module.exports = { MODES, mode, langCode, cleanText, isHallucination, toFinal, needsRetry, normalize };
+module.exports = { MODES, mode, langCode, cleanText, isHallucination, isSpeech, usableText, toFinal, needsRetry, normalize };

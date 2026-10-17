@@ -55,7 +55,9 @@ window hidden (tray menu or shortcut).
 sets how much of the CPU the final pass may use; a change applies within seconds, mid-pass, and the final pass
 always runs at below-normal priority so the apps you are using come first. Starting a new recording drops the
 final pass to 20 % so the live draft keeps up, and Stop returns to your chosen level (a level you pick during the
-call applies right away, until Stop).
+call applies right away, until Stop). While it runs, the tray tooltip shows progress, time left (measured from
+this pass's own speed, shown after the first few percent) and the level, e.g. *callrec — finalising 43% · ~25 min
+left · CPU 100%*.
 
 **Permissions.** Windows Settings › Privacy & security › Microphone must allow *Microphone access* and *Let
 desktop apps access your microphone*. callrec shows a button that opens that page if access is off. System audio
@@ -97,6 +99,42 @@ artifact). On the `windows-latest` runner (4 vCPU, AMD EPYC 7763):
 | Whisper large-v3 q5_0 | whisper.cpp | 3.7 % | 0.0 % | 3.8 % | 2.5 % | 14.09 |
 
 The fixtures are short, so the WER spread is small; the only Spanish error left is "Hola" heard as "El".
+
+### Final-pass speed with Whisper
+
+whisper.cpp pads every request to 30 s of audio, so callrec packs a side's consecutive utterances into one
+request of up to 28 s (pauses cut to 0.4 s) and maps the words back to their utterance and time by their word
+timestamps. Utterances that come back from their window with no text (Whisper sometimes merges, drops or stops
+early, e.g. an English line after a Spanish one) are decoded again, re-packed once and then on their own, so packing
+never loses speech. On a laptop
+speaker setup the mic also re-hears the other side: callrec transcribes *Them* first and skips mic audio before
+decoding only when it is at least 1 s long, inside their speech, at least 10 dB quieter, tracks their loudness
+closely and has no moment louder than their echo would be; anything less certain is decoded, and the old text
+check still runs after. Parakeet needs neither. The live draft stays one request per utterance, so lines appear as
+soon as the speaker pauses. Each meeting's `final-pass.json` records model, threads, audio and wall time, RTF,
+requests, windows, re-decodes and echo skipped, and the log gets one line per pass.
+
+`npm run bench:call` runs the real final pass on a 4-minute two-speaker ES/EN call
+([test/fixtures/call](test/fixtures/README.md)) at 100 %; RTF here is wall time / call length (1.0 = a 1 h call
+takes 1 h).
+
+| model | final pass | Windows runner, 60 s | Windows runner, 4 min | 8-thread Linux VM, 4 min | WER Me (es) / Them (en), 4 min |
+|---|---|---|---|---|---|
+| Whisper large-v3-turbo q5_0 | before: one request per utterance | 33.4 | – | 6.58 | 4.6 % / 3.6 % |
+| Whisper large-v3-turbo q5_0 | **now: packed + echo skipped** | **4.69** | **3.28** | **0.70** | 6.9 % / 2.3 % |
+| Whisper large-v3 q5_0 | before | 37.2 | – | 7.84 (60 s) | – |
+| Whisper large-v3 q5_0 | **now** | **5.88** | **3.53** | **0.94** | 5.4 % / 2.6 % |
+| Parakeet TDT 0.6B v3 int8 | unchanged | – | 0.21 | 0.08 | 4.6 % / 3.3 % |
+
+RTF = wall time / call length. Windows runner: `windows-latest`, 4 vCPU AMD EPYC 7763, 4 threads, below-normal
+priority, as the app runs it; the 60 s rows are the first minute of the call (the old path takes ~33× call length
+there, too slow for CI on the full call). The 8-thread VM is an Intel Xeon on Linux; Windows on the runner is much
+slower per thread, so expect a laptop somewhere in between. The runner is noisy (about ±25 % between runs of
+the same code), so treat one run as a rough figure. The Me WER is higher than with the old path mostly because the
+cautious echo filter now decodes a few echo lines that Whisper translates into Spanish ("Bye." → "Adiós"), which
+the text check can't match; that is the price of never dropping real speech. whisper.cpp built with clang-cl
+(`-T ClangCL`) was faster in one run and slower in two (turbo 3.52 vs MSVC 3.28 on the last), so the release
+keeps the static MSVC build (`CALLREC_WHISPER_TOOLCHAIN=clangcl` builds the other one).
 
 ## Output
 

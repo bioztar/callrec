@@ -1,0 +1,524 @@
+{
+ "durationSec": 245.98,
+ "echo": {
+  "gainDb": -18,
+  "delayMs": 40
+ },
+ "voices": {
+  "ME": "es_ES-davefx-medium (CC0)",
+  "THEM": "en_US-ljspeech-medium (public domain)"
+ },
+ "lines": [
+  {
+   "speaker": "THEM",
+   "start": 0.6,
+   "end": 2.31,
+   "text": "Hi, thanks for joining."
+  },
+  {
+   "speaker": "THEM",
+   "start": 2.77,
+   "end": 4.32,
+   "text": "Can you hear me all right?"
+  },
+  {
+   "speaker": "ME",
+   "start": 4.87,
+   "end": 6.31,
+   "text": "Sí, te oigo perfectamente."
+  },
+  {
+   "speaker": "ME",
+   "start": 6.99,
+   "end": 10.43,
+   "text": "Perdona el retraso, la reunión anterior se alargó un poco."
+  },
+  {
+   "speaker": "THEM",
+   "start": 10.91,
+   "end": 12.32,
+   "text": "No problem at all."
+  },
+  {
+   "speaker": "THEM",
+   "start": 12.92,
+   "end": 18.46,
+   "text": "So today I would like to go through the budget for the next quarter, and then the hiring plan."
+  },
+  {
+   "speaker": "ME",
+   "start": 19.23,
+   "end": 19.95,
+   "text": "Perfecto."
+  },
+  {
+   "speaker": "ME",
+   "start": 20.23,
+   "end": 24.31,
+   "text": "Sobre el presupuesto, hemos revisado los números con el equipo de finanzas."
+  },
+  {
+   "speaker": "ME",
+   "start": 24.89,
+   "end": 28.65,
+   "text": "El gasto en servidores ha subido un quince por ciento desde junio."
+  },
+  {
+   "speaker": "ME",
+   "start": 25.89,
+   "end": 26.6,
+   "text": "Ajá, claro.",
+   "overlap": true
+  },
+  {
+   "speaker": "THEM",
+   "start": 29.09,
+   "end": 31.72,
+   "text": "Fifteen percent is more than we expected."
+  },
+  {
+   "speaker": "THEM",
+   "start": 32.25,
+   "end": 33.79,
+   "text": "Do you know what is driving it?"
+  },
+  {
+   "speaker": "ME",
+   "start": 34.26,
+   "end": 36.96,
+   "text": "Sobre todo el almacenamiento de las grabaciones."
+  },
+  {
+   "speaker": "ME",
+   "start": 37.27,
+   "end": 40.02,
+   "text": "Guardamos todo durante un año y nadie lo borra."
+  },
+  {
+   "speaker": "THEM",
+   "start": 40.85,
+   "end": 42.01,
+   "text": "That makes sense."
+  },
+  {
+   "speaker": "THEM",
+   "start": 42.8,
+   "end": 47.05,
+   "text": "Could we move the older recordings to cheaper storage after ninety days?"
+  },
+  {
+   "speaker": "ME",
+   "start": 47.57,
+   "end": 48.97,
+   "text": "Sí, es una buena idea."
+  },
+  {
+   "speaker": "ME",
+   "start": 49.37,
+   "end": 51.85,
+   "text": "Puedo preparar una propuesta para el jueves."
+  },
+  {
+   "speaker": "THEM",
+   "start": 52.88,
+   "end": 54.85,
+   "text": "Great, Thursday works for me."
+  },
+  {
+   "speaker": "THEM",
+   "start": 55.72,
+   "end": 57.64,
+   "text": "Now, about the hiring plan."
+  },
+  {
+   "speaker": "THEM",
+   "start": 58.26,
+   "end": 61.81,
+   "text": "We still have two open positions on the support team."
+  },
+  {
+   "speaker": "ME",
+   "start": 62.61,
+   "end": 63.04,
+   "text": "Vale."
+  },
+  {
+   "speaker": "ME",
+   "start": 63.92,
+   "end": 66.21,
+   "text": "Tenemos tres candidatos en la última fase."
+  },
+  {
+   "speaker": "ME",
+   "start": 66.49,
+   "end": 69.74,
+   "text": "La primera entrevista técnica es el martes por la mañana."
+  },
+  {
+   "speaker": "THEM",
+   "start": 71.0,
+   "end": 72.82,
+   "text": "Who is running the technical interview?"
+  },
+  {
+   "speaker": "ME",
+   "start": 73.51,
+   "end": 75.72,
+   "text": "Lo hará María, del equipo de plataforma."
+  },
+  {
+   "speaker": "ME",
+   "start": 76.06,
+   "end": 78.19,
+   "text": "Ella conoce bien el sistema de tickets."
+  },
+  {
+   "speaker": "THEM",
+   "start": 78.71,
+   "end": 79.02,
+   "text": "Good."
+  },
+  {
+   "speaker": "THEM",
+   "start": 79.47,
+   "end": 84.51,
+   "text": "Please send me the candidate profiles before Monday, so I can read them over the weekend."
+  },
+  {
+   "speaker": "ME",
+   "start": 85.73,
+   "end": 88.04,
+   "text": "De acuerdo, te los envío mañana por la tarde."
+  },
+  {
+   "speaker": "THEM",
+   "start": 88.62,
+   "end": 89.61,
+   "text": "One more thing."
+  },
+  {
+   "speaker": "THEM",
+   "start": 90.24,
+   "end": 93.28,
+   "text": "The customer in Valencia asked about the new pricing."
+  },
+  {
+   "speaker": "THEM",
+   "start": 93.95,
+   "end": 96.89,
+   "text": "They want a discount if they sign for two years."
+  },
+  {
+   "speaker": "ME",
+   "start": 97.66,
+   "end": 98.96,
+   "text": "¿Cuánto descuento piden?"
+  },
+  {
+   "speaker": "THEM",
+   "start": 99.91,
+   "end": 101.41,
+   "text": "Around ten percent."
+  },
+  {
+   "speaker": "THEM",
+   "start": 101.7,
+   "end": 106.11,
+   "text": "I think we can offer eight, if they pay the first year in advance."
+  },
+  {
+   "speaker": "ME",
+   "start": 106.57,
+   "end": 107.82,
+   "text": "Me parece razonable."
+  },
+  {
+   "speaker": "ME",
+   "start": 108.21,
+   "end": 110.26,
+   "text": "Hablaré con ellos esta semana y te cuento."
+  },
+  {
+   "speaker": "THEM",
+   "start": 111.34,
+   "end": 112.0,
+   "text": "Perfect."
+  },
+  {
+   "speaker": "THEM",
+   "start": 112.53,
+   "end": 115.2,
+   "text": "I think that covers everything for today."
+  },
+  {
+   "speaker": "ME",
+   "start": 115.92,
+   "end": 117.44,
+   "text": "Sí, gracias por tu tiempo."
+  },
+  {
+   "speaker": "ME",
+   "start": 118.07,
+   "end": 119.08,
+   "text": "Hasta el jueves."
+  },
+  {
+   "speaker": "THEM",
+   "start": 119.93,
+   "end": 121.83,
+   "text": "Thanks, see you on Thursday."
+  },
+  {
+   "speaker": "THEM",
+   "start": 122.28,
+   "end": 122.76,
+   "text": "Bye."
+  },
+  {
+   "speaker": "THEM",
+   "start": 123.95,
+   "end": 128.28,
+   "text": "Actually, before you go, one quick question about the release."
+  },
+  {
+   "speaker": "THEM",
+   "start": 128.98,
+   "end": 131.97,
+   "text": "Is the new version still planned for the end of the month?"
+  },
+  {
+   "speaker": "ME",
+   "start": 132.61,
+   "end": 134.09,
+   "text": "Sí, en principio sí."
+  },
+  {
+   "speaker": "ME",
+   "start": 134.71,
+   "end": 138.67,
+   "text": "Nos falta terminar las pruebas en Windows y revisar la documentación."
+  },
+  {
+   "speaker": "ME",
+   "start": 139.26,
+   "end": 142.14,
+   "text": "Si todo va bien, la publicamos el día veintiocho."
+  },
+  {
+   "speaker": "THEM",
+   "start": 143.42,
+   "end": 144.03,
+   "text": "Okay."
+  },
+  {
+   "speaker": "THEM",
+   "start": 144.75,
+   "end": 148.79,
+   "text": "And the bug with the audio recording on some laptops, is that fixed?"
+  },
+  {
+   "speaker": "ME",
+   "start": 149.48,
+   "end": 150.48,
+   "text": "Creemos que sí."
+  },
+  {
+   "speaker": "ME",
+   "start": 151.37,
+   "end": 153.71,
+   "text": "Era un problema con los auriculares bluetooth."
+  },
+  {
+   "speaker": "ME",
+   "start": 154.04,
+   "end": 157.4,
+   "text": "Cuando cambiaban de perfil, la aplicación perdía el micrófono."
+  },
+  {
+   "speaker": "THEM",
+   "start": 158.21,
+   "end": 159.54,
+   "text": "I remember that one."
+  },
+  {
+   "speaker": "THEM",
+   "start": 160.28,
+   "end": 164.68,
+   "text": "Several people in the sales team complained about it last month."
+  },
+  {
+   "speaker": "ME",
+   "start": 165.23,
+   "end": 165.92,
+   "text": "Exacto."
+  },
+  {
+   "speaker": "ME",
+   "start": 166.48,
+   "end": 170.99,
+   "text": "Ahora la aplicación detecta el cambio y vuelve a conectar el micrófono en un par de segundos."
+  },
+  {
+   "speaker": "THEM",
+   "start": 171.43,
+   "end": 172.88,
+   "text": "That is good news."
+  },
+  {
+   "speaker": "THEM",
+   "start": 173.56,
+   "end": 177.51,
+   "text": "Will the transcripts keep the timestamps correct after a reconnect?"
+  },
+  {
+   "speaker": "ME",
+   "start": 178.68,
+   "end": 180.95,
+   "text": "Sí, lo hemos probado con llamadas de una hora."
+  },
+  {
+   "speaker": "ME",
+   "start": 181.57,
+   "end": 184.11,
+   "text": "Las marcas de tiempo coinciden con la grabación."
+  },
+  {
+   "speaker": "THEM",
+   "start": 185.38,
+   "end": 185.95,
+   "text": "Great."
+  },
+  {
+   "speaker": "THEM",
+   "start": 186.4,
+   "end": 189.77,
+   "text": "Could you write a short summary of the changes for the customers?"
+  },
+  {
+   "speaker": "THEM",
+   "start": 190.47,
+   "end": 193.56,
+   "text": "Nothing too technical, just a few lines."
+  },
+  {
+   "speaker": "ME",
+   "start": 194.55,
+   "end": 197.64,
+   "text": "Claro, lo preparo junto con las notas de la versión."
+  },
+  {
+   "speaker": "ME",
+   "start": 198.27,
+   "end": 200.0,
+   "text": "¿Lo quieres en inglés o en español?"
+  },
+  {
+   "speaker": "THEM",
+   "start": 200.86,
+   "end": 202.62,
+   "text": "English is fine for now."
+  },
+  {
+   "speaker": "THEM",
+   "start": 203.42,
+   "end": 205.81,
+   "text": "The marketing team will translate it later."
+  },
+  {
+   "speaker": "ME",
+   "start": 207.15,
+   "end": 209.34,
+   "text": "Perfecto, entonces lo escribo en inglés."
+  },
+  {
+   "speaker": "THEM",
+   "start": 210.21,
+   "end": 211.55,
+   "text": "And one last thing."
+  },
+  {
+   "speaker": "THEM",
+   "start": 212.23,
+   "end": 215.87,
+   "text": "Next week I am travelling to Madrid on Tuesday and Wednesday."
+  },
+  {
+   "speaker": "THEM",
+   "start": 216.16,
+   "end": 218.9,
+   "text": "Maybe we can meet in person at the office."
+  },
+  {
+   "speaker": "ME",
+   "start": 220.0,
+   "end": 220.65,
+   "text": "¡Qué bien!"
+  },
+  {
+   "speaker": "ME",
+   "start": 221.32,
+   "end": 223.43,
+   "text": "El miércoles por la tarde estoy libre."
+  },
+  {
+   "speaker": "ME",
+   "start": 224.32,
+   "end": 226.4,
+   "text": "Podemos comer juntos si te viene bien."
+  },
+  {
+   "speaker": "THEM",
+   "start": 227.62,
+   "end": 229.6,
+   "text": "Wednesday lunch sounds perfect."
+  },
+  {
+   "speaker": "THEM",
+   "start": 230.03,
+   "end": 232.17,
+   "text": "I will send you a calendar invitation."
+  },
+  {
+   "speaker": "ME",
+   "start": 232.95,
+   "end": 233.61,
+   "text": "Genial."
+  },
+  {
+   "speaker": "ME",
+   "start": 234.3,
+   "end": 236.5,
+   "text": "Reservo una mesa cerca de la oficina."
+  },
+  {
+   "speaker": "THEM",
+   "start": 236.93,
+   "end": 237.57,
+   "text": "Thanks."
+  },
+  {
+   "speaker": "THEM",
+   "start": 238.12,
+   "end": 240.15,
+   "text": "Okay, now I really have to go."
+  },
+  {
+   "speaker": "THEM",
+   "start": 240.51,
+   "end": 241.81,
+   "text": "Have a good afternoon."
+  },
+  {
+   "speaker": "ME",
+   "start": 242.32,
+   "end": 243.23,
+   "text": "Igualmente."
+  },
+  {
+   "speaker": "ME",
+   "start": 243.52,
+   "end": 244.31,
+   "text": "Hasta luego."
+  }
+ ]
+}

@@ -42,6 +42,53 @@ jobs:
           path: bench-${{ matrix.os }}.json
           if-no-files-found: ignore
 
+  whisper-speed:
+    name: Whisper final-pass speed (windows-latest, ${{ matrix.toolchain }})
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [msvc, clangcl]
+    runs-on: windows-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - uses: ./.github/actions/whisper
+        with:
+          models: large-v3-turbo-q5_0 large-v3-q5_0 parakeet-tdt-0.6b-v3
+          toolchain: ${{ matrix.toolchain }}
+      - name: Static, no redistributable (dumpbin /dependents)
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          $deps = & $dumpbin.FullName /dependents vendor\whisper\whisper-server.exe | Out-String
+          Write-Output $deps
+          if ($deps -match '(?i)(vcruntime|msvcp|ucrtbase|libomp|clang_rt)[^\s]*\.dll') { throw "whisper-server.exe needs a redistributable DLL" }
+      # "after" (packed + echo pre-filter) on the whole 4-min call with both compilers; "before"
+      # (one request per utterance, main's behaviour) only with MSVC (main's build) on the first
+      # 60 s, as it takes ~20x call length on this 4-vCPU runner.
+      - name: Call fixture, 100 % — after (packed), full 4 min
+        shell: bash
+        run: |
+          echo "### whisper.cpp built with ${{ matrix.toolchain }}" >> "$GITHUB_STEP_SUMMARY"
+          npm run --silent bench:call -- --models large-v3-turbo-q5_0,large-v3-q5_0,parakeet-tdt-0.6b-v3 --modes after --json call-after-${{ matrix.toolchain }}.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Call fixture, 100 % — before (per utterance), first 60 s
+        if: matrix.toolchain == 'msvc'
+        shell: bash
+        run: |
+          npm run --silent bench:call -- --models large-v3-turbo-q5_0,large-v3-q5_0 --modes before,after --sec 60 --json call-60s-${{ matrix.toolchain }}.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: whisper-speed-${{ matrix.toolchain }}
+          path: call-*.json
+          if-no-files-found: ignore
+
   windows-smoke:
     name: Windows packaged-app smoke
     runs-on: windows-latest

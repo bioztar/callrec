@@ -193,3 +193,40 @@ test('whisper real: mixed fixture switches Spanish → English between utterance
   assert.ok(norm(finals[1].text).includes('engineering'));
   assert.ok(norm(finals[1].text).includes('monday'));
 });
+
+// Packed final-pass windows on the real binary: several utterances in ONE
+// request must each get their own text back (word times are requested
+// explicitly), including a Spanish → English switch inside the window.
+test('whisper real: packed window (es + es + en, and mixed es → en) → every utterance keeps its text', { skip }, async (t) => {
+  assert.ok(!real.skip, real.skip);
+  const fp = require('../src/lib/final-pass');
+  const { pack, timedWords } = require('../src/lib/whisper-pack');
+  const { WhisperServer } = require('../src/whisper-stt');
+  const cut = (f) => fp.utterances(readWav(fs.readFileSync(path.join(FIX, f))).samples);
+  // Utterances from separate files, laid out on one clock as a channel would be.
+  const lay = (...lists) => { let t0 = 0; return lists.flat().map((u) => { const s = { ...u, start: t0, end: t0 + u.samples.length / RATE }; t0 = s.end + 0.8; return s; }); };
+  const server = new WhisperServer({ bin: real.bin, model: real.modelPath, log: (m) => t.diagnostic(m) });
+  await server.start();
+  try {
+    const cases = [
+      { language: 'es', segs: lay(cut('spanish.wav'), cut('english.wav').slice(0, 0)), want: [['equipo', 'llamadas'], ['cliente', 'lunes']] },
+      { language: 'mixed', segs: lay(cut('mixed.wav')), want: [['llamadas'], ['engineering', 'monday']] },
+      { language: 'mixed', segs: lay(cut('spanish.wav'), cut('english.wav')), want: [['llamadas'], ['cliente', 'lunes'], []] },
+    ];
+    for (const c of cases) {
+      const wins = pack(c.segs);
+      assert.equal(wins.length, 1, 'one packed window');
+      assert.equal(wins[0].parts.length, c.want.length);
+      const raw = await server.transcribe(pcm16ToWav(wins[0].samples, RATE), { language: protocol.mode(c.language).request });
+      const timed = timedWords(raw, { keep: protocol.isSpeech });
+      const stats = { requests: 0 };
+      const parts = await fp.serverTranscriber(server, stats).transcribeWindow(wins[0], { language: c.language });
+      t.diagnostic(`${c.language}: ${raw.segments.length} segments for ${wins[0].parts.length} utterances, word times ${timed}, re-decodes ${stats.redecodes || 0} → ${parts.map((p) => `[${p.text}]`).join(' ')}`);
+      assert.ok(timed, 'whisper-server returned word times for every segment');
+      parts.forEach((p, i) => {
+        assert.ok(p.text, `utterance ${i} came back empty`);
+        for (const w of c.want[i]) assert.ok(norm(p.text).includes(w), `utterance ${i}: missing "${w}" in "${p.text}"`);
+      });
+    }
+  } finally { server.stop(); }
+});

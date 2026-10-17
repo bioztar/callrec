@@ -4,6 +4,9 @@ inputs:
   models:
     description: Space-separated catalogue model ids (src/lib/model-catalog.js)
     default: small-q5_1
+  toolchain:
+    description: Windows compiler for whisper.cpp (msvc or clangcl)
+    default: msvc
 runs:
   using: composite
   steps:
@@ -12,11 +15,13 @@ runs:
       uses: actions/cache@v4
       with:
         path: vendor/whisper
-        key: whisper-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-whisper.js') }}
+        key: whisper-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.toolchain }}-${{ hashFiles('scripts/build-whisper.js') }}
     - name: Build whisper-server (whisper.cpp, pinned tag)
       if: steps.bin.outputs.cache-hit != 'true'
       shell: bash
       run: node scripts/build-whisper.js
+      env:
+        CALLREC_WHISPER_TOOLCHAIN: ${{ inputs.toolchain }}
     - name: Restore models
       uses: actions/cache@v4
       with:
