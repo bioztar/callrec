@@ -29,14 +29,14 @@ const MODELS = {
     file: 'ggml-large-v3-turbo-q5_0.bin',
     bytes: 574041195,
     sha256: '394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2',
-    label: 'Whisper large-v3-turbo, multilingual (574 MB) — more accurate, needs a fast CPU',
+    label: 'Whisper large-v3-turbo, multilingual (574 MB) — the Whisper pick for the final pass',
     short: 'large-v3-turbo',
   },
   'large-v3-q5_0': {
     file: 'ggml-large-v3-q5_0.bin',
     bytes: 1081140203,
     sha256: 'd75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1',
-    label: 'Whisper large-v3, multilingual (1.1 GB) — slow on a laptop CPU',
+    label: 'Whisper large-v3, multilingual (1.1 GB) — final pass ≈ 0.8× call length on 8 threads (turbo ≈ 0.6×)',
     short: 'large-v3',
   },
 };

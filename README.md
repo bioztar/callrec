@@ -55,7 +55,9 @@ window hidden (tray menu or shortcut).
 sets how much of the CPU the final pass may use; a change applies within seconds, mid-pass, and the final pass
 always runs at below-normal priority so the apps you are using come first. Starting a new recording drops the
 final pass to 20 % so the live draft keeps up, and Stop returns to your chosen level (a level you pick during the
-call applies right away, until Stop).
+call applies right away, until Stop). While it runs, the tray tooltip shows progress, time left (measured from
+this pass's own speed, shown after the first few percent) and the level, e.g. *callrec — finalising 43% · ~25 min
+left · CPU 100%*.
 
 **Permissions.** Windows Settings › Privacy & security › Microphone must allow *Microphone access* and *Let
 desktop apps access your microphone*. callrec shows a button that opens that page if access is off. System audio
@@ -97,6 +99,22 @@ artifact). On the `windows-latest` runner (4 vCPU, AMD EPYC 7763):
 | Whisper large-v3 q5_0 | whisper.cpp | 3.7 % | 0.0 % | 3.8 % | 2.5 % | 14.09 |
 
 The fixtures are short, so the WER spread is small; the only Spanish error left is "Hola" heard as "El".
+
+### Final-pass speed with Whisper
+
+whisper.cpp pads every request to 30 s of audio, so callrec packs a side's consecutive utterances into one
+request of up to 28 s (pauses cut to 0.4 s) and maps the words back to their utterance and time. On a laptop
+speaker setup the mic also re-hears the other side: callrec transcribes *Them* first and skips mic audio that is
+inside their speech, at least 10 dB quieter and follows their loudness, before decoding it (the old text check
+still runs after). Parakeet needs neither. The live draft stays one request per utterance, so lines appear as
+soon as the speaker pauses. Each meeting's `final-pass.json` records model, threads, audio and wall time, RTF,
+requests, windows and echo skipped, and the log gets one line per pass.
+
+`npm run bench:call` runs the real final pass on a 4-minute two-speaker ES/EN call
+([test/fixtures/call](test/fixtures/README.md)) at 100 %; RTF here is wall time / call length (1.0 = a 1 h call
+takes 1 h).
+
+<!-- whisper-speed table -->
 
 ## Output
 

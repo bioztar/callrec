@@ -70,6 +70,7 @@ function meeting(sec) {
       const hours = s.rtf * 60;
       console.log(`| ${st.short || id} | ${row.mode} | **${s.rtf.toFixed(2)}** | ${hours >= 60 ? `${(hours / 60).toFixed(1)} h` : `${Math.round(hours)} min`} | ${s.requests} | ${s.packedWindows ?? '–'} | ${s.echoSkippedSeconds} | ${pct(row.werMe)} | ${pct(row.werThem)} |`);
       fs.rmSync(dir, { recursive: true, force: true });
+      if (arg('--json')) fs.writeFileSync(arg('--json'), JSON.stringify({ sec, threads, rows }, null, 2));
     }
   }
   const cpu = os.cpus()[0] ? os.cpus()[0].model.trim() : 'unknown CPU';
