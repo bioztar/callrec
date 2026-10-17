@@ -22,6 +22,7 @@ const parakeetStt = require('./src/parakeet-stt');
 const { createDownloadManager } = require('./src/lib/model-downloads');
 const trayLib = require('./src/lib/tray');
 const cpuDialLib = require('./src/lib/cpu-dial');
+const { createRecordingLifecycle } = require('./src/lib/recording-lifecycle');
 const platform = require('./src/lib/platform');
 const { createDisplayMediaHandler } = require('./src/lib/display-media');
 const { createSettings } = require('./src/lib/settings');
@@ -51,6 +52,7 @@ if (process.env.CALLREC_USER_DATA) app.setPath('userData', process.env.CALLREC_U
 let win = null;
 let settings = null;
 let cpuDial = cpuDialLib.createCpuDial(); // replaced once settings load
+let recording = createRecordingLifecycle({ dial: cpuDial });
 let writer = null;
 let startedAtMs = 0;
 let lastSession = null; // summary of the last finished meeting (autorun report)
@@ -157,6 +159,7 @@ function createWindow() {
 let trayCtl = null;
 let closePolicy = null;
 let finalising = null; // 0..1 while the quality pass runs, else null
+let finalEtaSec = null; // its estimated seconds left (null until measured)
 
 function notify(message) {
   if (process.platform === 'win32' && trayCtl) { trayCtl.balloon('callrec', message); return; }
@@ -168,6 +171,7 @@ function trayState() {
     recording: Boolean(writer),
     elapsedSec: writer ? (Date.now() - startedAtMs) / 1000 : 0,
     finalising,
+    etaSec: finalEtaSec,
     cpu: cpuDial.level,
     shortcut: settings.get().shortcut,
     screenshotShortcut: settings.get().screenshotShortcut,
@@ -455,7 +459,7 @@ function wireIpc() {
       return { error: `Cannot create the meeting folder in ${s.outputRoot}: ${err.message}` };
     }
     startedAtMs = Date.now();
-    cpuDial.recordingStarted();
+    recording.start(writer);
     channels = new ChannelRecorder(writer.dir);
     sessionLanguage = language;
     sttEngine = engine === 'whisper' ? whisperStt : nativeStt;
@@ -484,35 +488,39 @@ function wireIpc() {
 let sttEngine = nativeStt;
 let sttModelPath = '';
 
+/// Every way a recording ends comes here; `recording.end` tells the CPU dial
+/// exactly once, even if closing the files throws.
 function finishSession() {
   if (!writer) return null;
-  const w = writer;
-  const dir = w.finish((Date.now() - startedAtMs) / 1000);
-  writer = null;
-  cpuDial.recordingStopped();
-  const offsets = channels ? channels.close() : {};
-  channels = null;
-  lastSession = { dir, segments: w.segments ? w.segments.length : null };
-  const call = autoCall && autoCall.dir === dir ? autoCall : null;
-  autoCall = null;
-  // Stop (or Discard) during an auto-recording: stay stopped until this call ends.
-  if (call && !call.ending && teams && teams.call && teams.call.id === call.id) teams.userStopped();
-  if (call && call.discard) {
-    lastSession.discarded = true;
-    deleteMeeting(dir);
+  if (!recording.active) recording.start(writer); // never left unmatched
+  return recording.end((w) => {
+    writer = null;
+    const ch = channels;
+    channels = null;
+    const dir = w.finish((Date.now() - startedAtMs) / 1000);
+    const offsets = ch ? ch.close() : {};
+    lastSession = { dir, segments: w.segments ? w.segments.length : null };
+    const call = autoCall && autoCall.dir === dir ? autoCall : null;
+    autoCall = null;
+    // Stop (or Discard) during an auto-recording: stay stopped until this call ends.
+    if (call && !call.ending && teams && teams.call && teams.call.id === call.id) teams.userStopped();
+    if (call && call.discard) {
+      lastSession.discarded = true;
+      deleteMeeting(dir);
+      return dir;
+    }
+    queueFinalPass(dir, w.meta, offsets);
+    if (call) lastSession.call = { ...w.meta.call };
+    const durationSec = w.meta.durationSec;
+    if (call && !(closePolicy && closePolicy.quitting) && toastLib.needsShortCallPrompt({ auto: true, durationSec })) {
+      // Ignored = kept: nothing is deleted unless Delete is clicked.
+      toast(toastLib.shortCallText(durationSec), call.name, [
+        { label: 'Keep', action: 'keep', run: () => {} },
+        { label: 'Delete', action: 'delete', valid: () => !(writer && writer.dir === dir), run: () => deleteMeeting(dir) },
+      ]);
+    }
     return dir;
-  }
-  queueFinalPass(dir, w.meta, offsets);
-  if (call) lastSession.call = { ...w.meta.call };
-  const durationSec = w.meta.durationSec;
-  if (call && !(closePolicy && closePolicy.quitting) && toastLib.needsShortCallPrompt({ auto: true, durationSec })) {
-    // Ignored = kept: nothing is deleted unless Delete is clicked.
-    toast(toastLib.shortCallText(durationSec), call.name, [
-      { label: 'Keep', action: 'keep', run: () => {} },
-      { label: 'Delete', action: 'delete', valid: () => !(writer && writer.dir === dir), run: () => deleteMeeting(dir) },
-    ]);
-  }
-  return dir;
+  });
 }
 
 // ---- Teams auto-record ------------------------------------------------------
@@ -746,12 +754,13 @@ async function runFinal(dir, onProgress) {
   const transcriber = finalPass.adaptiveTranscriber({
     create: (threads) => whisperStt.defaultServerFactory({ bin: whisperStt.binaryPath(), model: st.path, threads, lowPriority: true, log }),
     threads: () => cpuDial.threads(),
+    level: () => cpuDial.level,
     log,
   });
   finalServer = transcriber;
   try {
     const label = `${modelLabel(st)} (on-device)`;
-    return await finalPass.runFinalPass({ dir, transcriber, label, onProgress });
+    return await finalPass.runFinalPass({ dir, transcriber, label, whisper: st.runtime !== 'parakeet', onProgress, log });
   } finally {
     transcriber.stop();
     finalServer = null;
@@ -765,6 +774,7 @@ function createFinalQueue() {
     onState: (st) => {
       finalDir = st ? st.dir : null;
       finalising = st ? st.fraction : null;
+      finalEtaSec = st && st.etaSec != null ? st.etaSec : null;
       if (trayCtl) trayCtl.refresh();
       if (st) toWindow('final:state', { dir: st.dir, fraction: st.fraction });
     },
@@ -821,6 +831,7 @@ app.whenReady().then(() => {
     persist: (p) => settings.set({ finalCpu: p }),
     onChange: (p) => { console.error(`[final] finalising speed ${p}%`); if (trayCtl) trayCtl.refresh(); },
   });
+  recording = createRecordingLifecycle({ dial: cpuDial });
   createFinalQueue();
   wireDisplayMedia();
   wireIpc();

@@ -1,6 +1,7 @@
 'use strict';
 
 const { LEVELS, DEFAULT_LEVEL } = require('./cpu-dial');
+const { etaText } = require('./eta');
 
 // Tray / menu-bar icon: pure helpers plus a controller that takes Electron's
 // Tray / Menu / nativeImage as arguments (unit-tested with mocks).
@@ -16,9 +17,12 @@ function clock(sec) {
 }
 
 /// "callrec — idle" / "callrec — recording 12:34" / "callrec — Finalising transcript… 43%".
-function tooltip({ recording = false, elapsedSec = 0, finalising = null, cpu = null } = {}) {
+function tooltip({ recording = false, elapsedSec = 0, finalising = null, etaSec = null, cpu = null } = {}) {
   if (recording) return `callrec — recording ${clock(elapsedSec)}`;
-  if (finalising != null) return `callrec — finalising ${Math.round(finalising * 100)}%${cpu ? ` · CPU ${cpu}%` : ''}`;
+  if (finalising != null) {
+    const left = etaText(etaSec);
+    return `callrec — finalising ${Math.round(finalising * 100)}%${left ? ` · ${left}` : ''}${cpu ? ` · CPU ${cpu}%` : ''}`;
+  }
   return IDLE_TIP;
 }
 

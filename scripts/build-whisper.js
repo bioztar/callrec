@@ -18,6 +18,8 @@ const WORK = path.join(ROOT, 'vendor', 'whisper-build');
 const SRC = path.join(WORK, `whisper.cpp-${TAG.slice(1)}`);
 const OUT = path.join(ROOT, 'vendor', 'whisper');
 const EXE = process.platform === 'win32' ? 'whisper-server.exe' : 'whisper-server';
+// Windows compiler: `msvc` (default) or `clangcl` (CALLREC_WHISPER_TOOLCHAIN, for the CI comparison).
+const TOOLCHAIN = process.platform === 'win32' ? (process.env.CALLREC_WHISPER_TOOLCHAIN || 'msvc') : 'default';
 
 function run(cmd, args, opts = {}) {
   console.log(`$ ${cmd} ${args.join(' ')}`);
@@ -49,6 +51,9 @@ function cmakeFlags() {
     f.push('-DGGML_NATIVE=OFF', '-DGGML_AVX=ON', '-DGGML_AVX2=ON', '-DGGML_FMA=ON', '-DGGML_F16C=ON');
   }
   if (process.platform === 'win32') {
+    // clang-cl (Visual Studio's bundled LLVM, same static CRT) measured no faster
+    // than MSVC on the windows-latest call bench (PR #6), so MSVC stays the default.
+    if (TOOLCHAIN === 'clangcl') f.push('-T', 'ClangCL');
     f.push('-DGGML_OPENMP=OFF', '-DCMAKE_POLICY_DEFAULT_CMP0091=NEW', '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded');
   }
   return f;
@@ -64,7 +69,7 @@ function findExe(dir) {
 
 (async () => {
   await fetchSource();
-  const build = path.join(WORK, `build-${process.platform}-${process.arch}`);
+  const build = path.join(WORK, `build-${process.platform}-${process.arch}-${TOOLCHAIN}`);
   run('cmake', ['-S', SRC, '-B', build, ...cmakeFlags()]);
   run('cmake', ['--build', build, '--config', 'Release', '--target', 'whisper-server', '-j', String(require('os').cpus().length)]);
   const exe = findExe(build);
@@ -73,6 +78,6 @@ function findExe(dir) {
   fs.copyFileSync(exe, path.join(OUT, EXE));
   fs.chmodSync(path.join(OUT, EXE), 0o755);
   fs.copyFileSync(path.join(SRC, 'LICENSE'), path.join(OUT, 'LICENSE-whisper.cpp.txt'));
-  fs.writeFileSync(path.join(OUT, 'VERSION'), `whisper.cpp ${TAG} ${process.platform}-${process.arch}\n`);
+  fs.writeFileSync(path.join(OUT, 'VERSION'), `whisper.cpp ${TAG} ${process.platform}-${process.arch}${process.platform === 'win32' ? ` ${TOOLCHAIN}` : ''}\n`);
   console.log(`built ${path.join(OUT, EXE)} (${(fs.statSync(path.join(OUT, EXE)).size / 1e6).toFixed(1)} MB)`);
 })().catch((err) => { console.error(err.message); process.exit(1); });

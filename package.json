@@ -12,6 +12,7 @@
     "build:whisper": "node scripts/build-whisper.js",
     "fetch:model": "node scripts/fetch-model.js",
     "bench": "node scripts/bench.js",
+    "bench:call": "node scripts/bench-call.js",
     "smoke": "node scripts/smoke.js",
     "dist": "bash native/stt/build.sh && node scripts/build-whisper.js && electron-builder --mac --publish never",
     "dist:mac": "electron-builder --mac --publish never",

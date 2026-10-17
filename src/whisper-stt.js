@@ -110,6 +110,8 @@ class WhisperServer {
     form.append('language', language);
     form.append('temperature', '0.0');
     form.append('no_language_probabilities', 'true');
+    // Word times let a packed window be split back into its utterances.
+    form.append('token_timestamps', 'true');
     const res = await fetch(`http://127.0.0.1:${this.port}/inference`, { method: 'POST', body: form });
     const body = await res.text();
     if (!res.ok) throw new Error(`whisper-server HTTP ${res.status}: ${body.slice(0, 200)}`);
