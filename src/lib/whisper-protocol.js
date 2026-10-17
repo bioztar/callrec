@@ -70,7 +70,9 @@ function usableText(text, durationSec) {
 function toFinal(reply, { start, end }) {
   const segs = Array.isArray(reply && reply.segments) ? reply.segments : [];
   const kept = segs.length
-    ? segs.filter(isSpeech).map((s) => s.text).join(' ')
+    // Segment texts carry their own leading space; a word split across two
+    // segments ("grab" + "ación") must not get one in the middle.
+    ? segs.filter(isSpeech).map((s) => s.text).join('').replace(/([.!?,;:])(\p{L})/gu, '$1 $2')
     : (reply && reply.text) || '';
   const text = cleanText(kept);
   if (!/[\p{L}\p{N}]/u.test(text) || isHallucination(text, end - start)) return null;

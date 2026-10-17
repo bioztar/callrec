@@ -54,33 +54,41 @@ function serverTranscriber(server, stats = { requests: 0 }) {
     }
     return reply;
   }
-  return {
+  const api = {
     stats,
     async transcribe(seg, { language }) {
       const fin = protocol.toFinal(await decode(seg.samples, language), seg);
       return fin ? fin.text : null;
     },
     /// One request for a packed window (Whisper) → `[{ index, text | null }]` per utterance.
-    /// An utterance that comes back empty from the window (Whisper merged or
-    /// skipped it, or the reply had no word times to split by) is decoded on
-    /// its own, so packing never loses speech a solo request would have kept.
-    async transcribeWindow(win, { language }) {
+    /// Utterances that come back empty (Whisper merged, skipped or stopped early,
+    /// or the reply had no word times to split by) are decoded again: re-packed
+    /// once if there are several, then on their own, so packing never loses
+    /// speech a solo request would have kept. `stats.redecodes` counts the extra requests.
+    async transcribeWindow(win, { language }, depth = 0) {
       const reply = await decode(win.samples, language);
-      const solo = win.parts.length > 1 && !timedWords(reply, { keep: protocol.isSpeech });
-      const parts = solo ? win.parts.map((p) => ({ index: p.index, text: '' })) : splitReply(win, reply);
-      const out = [];
-      for (let i = 0; i < parts.length; i += 1) {
-        const p = win.parts[i];
-        let text = protocol.usableText(parts[i].text, p.len);
-        if (text == null && win.parts.length > 1 && p.samples) {
-          stats.soloRedecodes = (stats.soloRedecodes || 0) + 1;
-          text = await this.transcribe({ samples: p.samples, start: p.start, end: p.end }, { language });
+      const many = win.parts.length > 1;
+      const parts = many && !timedWords(reply, { keep: protocol.isSpeech })
+        ? win.parts.map((p) => ({ index: p.index, text: '' })) : splitReply(win, reply);
+      const out = parts.map((p, i) => ({ index: p.index, text: protocol.usableText(p.text, win.parts[i].len) }));
+      const missing = many ? win.parts.filter((p, i) => out[i].text == null && p.samples) : [];
+      const fill = (index, text) => { out.find((o) => o.index === index).text = text; };
+      if (missing.length > 1 && depth === 0) {
+        for (const w of pack(missing.map((p) => ({ samples: p.samples, start: p.start, end: p.end })))) {
+          stats.redecodes = (stats.redecodes || 0) + 1;
+          const again = await api.transcribeWindow(w, { language }, depth + 1);
+          again.forEach((r) => fill(missing[r.index].index, r.text));
         }
-        out.push({ index: p.index, text });
+      } else {
+        for (const p of missing) {
+          stats.redecodes = (stats.redecodes || 0) + 1;
+          fill(p.index, await api.transcribe({ samples: p.samples, start: p.start, end: p.end }, { language }));
+        }
       }
       return out;
     },
   };
+  return api;
 }
 
 function splitReply(win, reply) { return split(win, reply, { keep: protocol.isSpeech }); }
@@ -190,7 +198,7 @@ async function runFinalPass({ dir, transcriber, label, whisper = false, onProgre
     requests: ts.requests != null ? ts.requests : null,
     utterances: stats.utterances,
     packedWindows: whisper ? stats.packedWindows : null,
-    soloRedecodes: whisper ? (ts.soloRedecodes || 0) : null,
+    redecodes: whisper ? (ts.redecodes || 0) : null,
     echoSkipped: stats.echoSkipped,
     echoSkippedSeconds: round(stats.echoSkippedSeconds),
   };
@@ -207,7 +215,7 @@ async function runFinalPass({ dir, transcriber, label, whisper = false, onProgre
 function passLine(s) {
   const th = s.threads.length ? s.threads.map((t) => `${t.threads}${t.level != null ? ` (${t.level}%)` : ''}`).join(' → ') : '?';
   return `final pass done: ${s.model} · ${s.audioSeconds} s audio (${s.speechSeconds} s speech) in ${s.wallSeconds} s · RTF ${s.rtf}`
-    + ` · ${s.requests} requests${s.packedWindows != null ? ` / ${s.packedWindows} windows${s.soloRedecodes ? ` (+${s.soloRedecodes} solo)` : ''}` : ''} for ${s.utterances} utterances`
+    + ` · ${s.requests} requests${s.packedWindows != null ? ` / ${s.packedWindows} windows${s.redecodes ? ` (+${s.redecodes} re-decodes)` : ''}` : ''} for ${s.utterances} utterances`
     + ` · threads ${th} · echo skipped ${s.echoSkippedSeconds} s`;
 }
 

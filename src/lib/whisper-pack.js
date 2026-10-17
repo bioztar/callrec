@@ -64,12 +64,17 @@ function split(win, reply, { keep = () => true } = {}) {
   const texts = win.parts.map(() => []);
   const segs = Array.isArray(reply && reply.segments) ? reply.segments.filter(keep) : [];
   if (!segs.length && reply && reply.text && !Array.isArray(reply.segments)) texts[0].push(reply.text);
+  let last = 0;
   for (const s of segs) {
     const words = Array.isArray(s.words) && s.words.length ? s.words : [{ word: s.text, start: s.start, end: s.end }];
-    for (const w of words) {
+    words.forEach((w, i) => {
       const mid = (Number(w.start) + Number(w.end)) / 2;
-      texts[partAt(win, Number.isFinite(mid) ? mid : 0)].push(w.word);
-    }
+      // `words` are tokens: one with no leading space continues the previous
+      // word ("Adió" + "s", "28" + ".") and stays with it, even across a cut.
+      const cont = (i > 0 || s !== segs[0]) && !/^\s/.test(String(w.word || ''));
+      last = cont ? last : partAt(win, Number.isFinite(mid) ? mid : 0);
+      texts[last].push(w.word);
+    });
   }
   return win.parts.map((p, i) => ({ index: p.index, text: texts[i].join('').replace(/\s+/g, ' ').trim() }));
 }

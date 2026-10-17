@@ -104,14 +104,15 @@ The fixtures are short, so the WER spread is small; the only Spanish error left 
 
 whisper.cpp pads every request to 30 s of audio, so callrec packs a side's consecutive utterances into one
 request of up to 28 s (pauses cut to 0.4 s) and maps the words back to their utterance and time by their word
-timestamps. An utterance that comes back from its window with no text (Whisper sometimes merges or drops one, e.g.
-an English line after a Spanish one) is decoded again on its own, so packing never loses speech. On a laptop
+timestamps. Utterances that come back from their window with no text (Whisper sometimes merges, drops or stops
+early, e.g. an English line after a Spanish one) are decoded again, re-packed once and then on their own, so packing
+never loses speech. On a laptop
 speaker setup the mic also re-hears the other side: callrec transcribes *Them* first and skips mic audio before
 decoding only when it is at least 1 s long, inside their speech, at least 10 dB quieter, tracks their loudness
 closely and has no moment louder than their echo would be; anything less certain is decoded, and the old text
 check still runs after. Parakeet needs neither. The live draft stays one request per utterance, so lines appear as
 soon as the speaker pauses. Each meeting's `final-pass.json` records model, threads, audio and wall time, RTF,
-requests, windows, solo re-decodes and echo skipped, and the log gets one line per pass.
+requests, windows, re-decodes and echo skipped, and the log gets one line per pass.
 
 `npm run bench:call` runs the real final pass on a 4-minute two-speaker ES/EN call
 ([test/fixtures/call](test/fixtures/README.md)) at 100 %; RTF here is wall time / call length (1.0 = a 1 h call

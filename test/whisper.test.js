@@ -221,7 +221,7 @@ test('whisper real: packed window (es + es + en, and mixed es → en) → every 
       const timed = timedWords(raw, { keep: protocol.isSpeech });
       const stats = { requests: 0 };
       const parts = await fp.serverTranscriber(server, stats).transcribeWindow(wins[0], { language: c.language });
-      t.diagnostic(`${c.language}: ${raw.segments.length} segments for ${wins[0].parts.length} utterances, word times ${timed}, solo re-decodes ${stats.soloRedecodes || 0} → ${parts.map((p) => `[${p.text}]`).join(' ')}`);
+      t.diagnostic(`${c.language}: ${raw.segments.length} segments for ${wins[0].parts.length} utterances, word times ${timed}, re-decodes ${stats.redecodes || 0} → ${parts.map((p) => `[${p.text}]`).join(' ')}`);
       assert.ok(timed, 'whisper-server returned word times for every segment');
       parts.forEach((p, i) => {
         assert.ok(p.text, `utterance ${i} came back empty`);

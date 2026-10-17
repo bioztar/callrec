@@ -98,12 +98,22 @@ test('packed window: a merged segment without word times → those utterances ar
   const stats = { requests: 0 };
   let out = await serverTranscriber(fake(merged), stats).transcribeWindow(win, { language: 'es' });
   assert.deepEqual(out.map((p) => p.text), ['solo 2 s', 'solo 3 s', 'solo 2 s']);
-  assert.equal(stats.soloRedecodes, 3);
+  // Re-packed once (merged again, still no words), then each one alone.
+  assert.deepEqual(calls.map(Math.round), [8, 8, 2, 3, 2]);
+  assert.equal(stats.redecodes, 4);
   // With word times, words are split by time; an utterance that gets no words is re-decoded.
   calls.length = 0;
   const timed = [{ start: 0, end: 5, text: 'uno dos', words: [{ word: ' uno', start: 0.5, end: 1 }, { word: ' dos', start: 3, end: 3.5 }] }];
   const st2 = { requests: 0 };
   out = await serverTranscriber(fake(timed), st2).transcribeWindow(win, { language: 'es' });
   assert.deepEqual(out.map((p) => p.text), ['uno', 'dos', 'solo 2 s']);
-  assert.equal(st2.soloRedecodes, 1);
+  assert.equal(st2.redecodes, 1);
+});
+
+test('split: a token without a leading space stays with its word across the cut', () => {
+  const win = { parts: [{ index: 0, at: 0, len: 2 }, { index: 1, at: 2.4, len: 2 }] };
+  const reply = { segments: [{ start: 0, end: 4.4, text: ' Adiós. Creemos', words: [
+    { word: ' Adió', start: 1.6, end: 2.0 }, { word: 's', start: 2.1, end: 2.5 }, { word: '.', start: 2.5, end: 2.6 },
+    { word: ' Cre', start: 2.6, end: 3 }, { word: 'emos', start: 3, end: 3.4 }] }] };
+  assert.deepEqual(split(win, reply).map((p) => p.text), ['Adiós.', 'Creemos']);
 });
