@@ -26,9 +26,9 @@ function envelope(samples) {
   return out;
 }
 
-/// Best Pearson correlation of `a` with `b` delayed by 0..MAX_LAG frames.
-function envelopeCorrelation(a, b) {
-  let best = -1;
+/// Best Pearson correlation of `a` with `b` delayed by 0..MAX_LAG frames → { corr, lag }.
+function bestLag(a, b) {
+  let best = { corr: -1, lag: 0 };
   for (let lag = 0; lag <= MAX_LAG; lag += 1) {
     const n = Math.min(a.length - lag, b.length);
     if (n < 20) break;
@@ -40,9 +40,34 @@ function envelopeCorrelation(a, b) {
       const x = a[i + lag] - ma; const y = b[i] - mb;
       num += x * y; va += x * x; vb += y * y;
     }
-    if (va > 0 && vb > 0) best = Math.max(best, num / Math.sqrt(va * vb));
+    if (va > 0 && vb > 0 && num / Math.sqrt(va * vb) > best.corr) best = { corr: num / Math.sqrt(va * vb), lag };
   }
   return best;
+}
+
+function envelopeCorrelation(a, b) { return bestLag(a, b).corr; }
+
+/// Share of mic frames clearly louder (> `db` dB) than THEM's envelope predicts
+/// at the echo's level: speech of the user's own on top of the echo.
+function excess(me, ref, lag, { dbOver = 6, rangeDb = 30 } = {}) {
+  const n = Math.min(me.length - lag, ref.length);
+  if (n <= 0) return 1;
+  let mePeak = -Infinity; let refPeak = -Infinity;
+  for (let i = 0; i < n; i += 1) { mePeak = Math.max(mePeak, me[i + lag]); refPeak = Math.max(refPeak, ref[i]); }
+  const floor = mePeak - rangeDb; // quieter mic frames are room noise, not speech
+  // Echo level: median mic − THEM over frames where both carry speech.
+  const d = [];
+  for (let i = 0; i < n; i += 1) if (me[i + lag] > floor && ref[i] > refPeak - rangeDb) d.push(me[i + lag] - ref[i]);
+  if (!d.length) return 1;
+  d.sort((x, y) => x - y);
+  const level = d[Math.floor(d.length / 2)];
+  let active = 0; let over = 0;
+  for (let i = 0; i < n; i += 1) {
+    if (me[i + lag] <= floor) continue;
+    active += 1;
+    if (me[i + lag] - Math.max(ref[i] + level, floor) > dbOver) over += 1;
+  }
+  return active ? over / active : 0;
 }
 
 /// Fraction of [start, end] covered by `spans` (merged first).
@@ -61,15 +86,20 @@ function overlap(start, end, spans) {
 /// `me`: mic utterance on the call clock ({ start, end, samples });
 /// `them`: { samples, offset } of the whole THEM channel; `themSpans`: THEM
 /// utterances that produced text, on the call clock. → { echo, ... } (why).
-function preEcho(me, them, themSpans, { minOverlap = 0.8, marginDb = 10, minCorr = 0.5 } = {}) {
+function preEcho(me, them, themSpans, { minOverlap = 0.8, marginDb = 10, minCorr = 0.9, minSec = 1, maxExcess = 0 } = {}) {
   const cover = overlap(me.start, me.end, themSpans);
   if (cover < minOverlap) return { echo: false, cover };
+  // Too few envelope frames to trust a correlation: decode it.
+  if (me.end - me.start < minSec) return { echo: false, cover };
   const i0 = Math.max(0, Math.round((me.start - them.offset) * SR));
   const ref = them.samples.subarray(i0, i0 + me.samples.length);
   const gapDb = db(rms(ref)) - db(rms(me.samples));
   if (gapDb < marginDb) return { echo: false, cover, gapDb };
-  const corr = envelopeCorrelation(envelope(me.samples), envelope(ref));
-  return { echo: corr >= minCorr, cover, gapDb, corr };
+  const a = envelope(me.samples); const b = envelope(ref);
+  const { corr, lag } = bestLag(a, b);
+  if (corr < minCorr) return { echo: false, cover, gapDb, corr };
+  const extra = excess(a, b, lag);
+  return { echo: extra <= maxExcess, cover, gapDb, corr, extra };
 }
 
-module.exports = { rms, db, envelope, envelopeCorrelation, overlap, preEcho };
+module.exports = { rms, db, envelope, envelopeCorrelation, bestLag, excess, overlap, preEcho };

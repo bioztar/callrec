@@ -8,8 +8,9 @@
 const SR = 16000;
 
 /// Utterances (`{ samples, start, end }`, seconds on the channel clock) →
-/// windows `{ samples, start, end, parts: [{ index, at, len, start, end }] }`,
-/// where `at`/`len` place utterance `index` inside the window (seconds).
+/// windows `{ samples, start, end, parts: [{ index, at, len, start, end, samples }] }`,
+/// where `at`/`len` place utterance `index` inside the window (seconds) and
+/// `samples` is the utterance's own audio (for a solo re-decode).
 function pack(segs, { maxSec = 28, gapSec = 0.4, sampleRate = SR } = {}) {
   const windows = [];
   let cur = null;
@@ -32,7 +33,7 @@ function pack(segs, { maxSec = 28, gapSec = 0.4, sampleRate = SR } = {}) {
     if (pad) cur.chunks.push(new Int16Array(pad));
     const at = cur.sec + pad / sampleRate;
     cur.chunks.push(s.samples);
-    cur.parts.push({ index, at, len, start: s.start, end: s.end });
+    cur.parts.push({ index, at, len, start: s.start, end: s.end, samples: s.samples });
     cur.sec = at + len;
   });
   close();
@@ -73,4 +74,12 @@ function split(win, reply, { keep = () => true } = {}) {
   return win.parts.map((p, i) => ({ index: p.index, text: texts[i].join('').replace(/\s+/g, ' ').trim() }));
 }
 
-module.exports = { pack, split, toOriginal, partAt };
+/// True when every kept segment carries words with finite start/end times, i.e.
+/// split() can place each word; otherwise a merged segment can't be divided.
+function timedWords(reply, { keep = () => true } = {}) {
+  const segs = Array.isArray(reply && reply.segments) ? reply.segments.filter(keep) : [];
+  return segs.every((s) => Array.isArray(s.words) && s.words.length
+    && s.words.every((w) => Number.isFinite(Number(w.start)) && Number.isFinite(Number(w.end))));
+}
+
+module.exports = { timedWords, pack, split, toOriginal, partAt };

@@ -76,3 +76,34 @@ test('pack: the call fixture (no word lost or doubled across windows)', () => {
   assert.deepEqual(got, words);
   for (const o of out) assert.ok(o.text.split(' ').filter(Boolean).every((id) => id.startsWith(`w${o.index}_`)));
 });
+
+test('packed window: a merged segment without word times → those utterances are re-decoded alone, none comes back empty', async () => {
+  const { serverTranscriber } = require('../src/lib/final-pass');
+  const { timedWords } = require('../src/lib/whisper-pack');
+  const sec = (s) => new Int16Array(Math.round(s * 16000)).fill(1000);
+  const segs = [{ samples: sec(2), start: 0, end: 2 }, { samples: sec(3), start: 3, end: 6 }, { samples: sec(2), start: 7, end: 9 }];
+  const [win] = require('../src/lib/whisper-pack').pack(segs);
+  const calls = [];
+  const fake = (merged) => ({
+    async transcribe(wav) {
+      const sec2 = (wav.length - 44) / 2 / 16000;
+      calls.push(sec2);
+      if (sec2 > 5) return { language: 'es', segments: merged };
+      return { language: 'es', segments: [{ start: 0, end: sec2, text: `solo ${Math.round(sec2)} s` }] };
+    },
+  });
+  // Whisper folded all three utterances into one segment and sent no words.
+  const merged = [{ start: 0, end: 7.8, text: 'uno dos tres cuatro cinco seis' }];
+  assert.equal(timedWords({ segments: merged }), false);
+  const stats = { requests: 0 };
+  let out = await serverTranscriber(fake(merged), stats).transcribeWindow(win, { language: 'es' });
+  assert.deepEqual(out.map((p) => p.text), ['solo 2 s', 'solo 3 s', 'solo 2 s']);
+  assert.equal(stats.soloRedecodes, 3);
+  // With word times, words are split by time; an utterance that gets no words is re-decoded.
+  calls.length = 0;
+  const timed = [{ start: 0, end: 5, text: 'uno dos', words: [{ word: ' uno', start: 0.5, end: 1 }, { word: ' dos', start: 3, end: 3.5 }] }];
+  const st2 = { requests: 0 };
+  out = await serverTranscriber(fake(timed), st2).transcribeWindow(win, { language: 'es' });
+  assert.deepEqual(out.map((p) => p.text), ['uno', 'dos', 'solo 2 s']);
+  assert.equal(st2.soloRedecodes, 1);
+});

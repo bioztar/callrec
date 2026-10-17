@@ -52,3 +52,39 @@ test('preEcho: quiet mic speech NOT following Them is kept (energy alone is not 
   const r = preEcho({ start: t.start, end: t.start + samples.length / 16000, samples }, { samples: themSamples, offset: 0 }, thems);
   assert.equal(r.echo, false, JSON.stringify(r));
 });
+
+test('preEcho: real speech over an echo clip is kept, even well below the echo level', () => {
+  const me = read('me.wav');
+  const themSamples = read('them.wav');
+  const thems = utterances(themSamples);
+  const them = { samples: themSamples, offset: 0 };
+  const realMe = ref.lines.filter((l) => l.speaker === 'ME');
+  const mine = utterances(me);
+  const echoes = mine.filter((u) => !realMe.some((l) => u.start < l.end && u.end > l.start) && preEcho(u, them, thems).echo);
+  assert.ok(echoes.length > 5);
+  // Me's own words (a real ME line) mixed on top of each skipped echo clip.
+  const own = mine.filter((u) => realMe.some((l) => u.start < l.end && u.end > l.start) && u.end - u.start > 3)
+    .map((u) => u.samples);
+  const peak = own.reduce((m, s) => s.reduce((k, x) => Math.max(k, Math.abs(x)), m), 0);
+  for (const dB of [-6, -12, -16, -20, -24]) {
+    const g = 10 ** (dB / 20) * 32767 / peak;
+    const kept = echoes.filter((e, i) => {
+      const o = own[i % own.length];
+      const x = Int16Array.from(e.samples, (v, j) => Math.max(-32768, Math.min(32767, Math.round(v + g * (o[j % o.length] || 0)))));
+      return !preEcho({ ...e, samples: x }, them, thems).echo;
+    });
+    assert.equal(kept.length, echoes.length, `${dB} dB: ${echoes.length - kept.length}/${echoes.length} mixed clips wrongly skipped`);
+  }
+});
+
+test('preEcho: clips under 1 s are never skipped (too few frames to trust a correlation)', () => {
+  const themSamples = read('them.wav');
+  const thems = utterances(themSamples);
+  const t = thems.find((u) => u.end - u.start > 2);
+  const i0 = Math.round(t.start * 16000);
+  const echo = Int16Array.from(themSamples.subarray(i0, i0 + 14000), (x) => Math.round(x / 8)); // 0.875 s, -18 dB
+  const r = preEcho({ start: t.start, end: t.start + 0.875, samples: echo }, { samples: themSamples, offset: 0 }, thems);
+  assert.equal(r.echo, false, JSON.stringify(r));
+  const long = Int16Array.from(themSamples.subarray(i0, i0 + 32000), (x) => Math.round(x / 8)); // the same echo, 2 s
+  assert.equal(preEcho({ start: t.start, end: t.start + 2, samples: long }, { samples: themSamples, offset: 0 }, thems).echo, true);
+});

@@ -14,7 +14,7 @@ const { isEcho } = require('./echo');
 const protocol = require('./whisper-protocol');
 const { pcm16ToWav } = require('./wav');
 const { readChannel, channelFiles } = require('./channel-audio');
-const { pack, split } = require('./whisper-pack');
+const { pack, split, timedWords } = require('./whisper-pack');
 const { preEcho } = require('./echo-pcm');
 const { etaSec } = require('./eta');
 
@@ -61,9 +61,24 @@ function serverTranscriber(server, stats = { requests: 0 }) {
       return fin ? fin.text : null;
     },
     /// One request for a packed window (Whisper) → `[{ index, text | null }]` per utterance.
+    /// An utterance that comes back empty from the window (Whisper merged or
+    /// skipped it, or the reply had no word times to split by) is decoded on
+    /// its own, so packing never loses speech a solo request would have kept.
     async transcribeWindow(win, { language }) {
-      const parts = splitReply(win, await decode(win.samples, language));
-      return parts.map((p, i) => ({ index: p.index, text: protocol.usableText(p.text, win.parts[i].len) }));
+      const reply = await decode(win.samples, language);
+      const solo = win.parts.length > 1 && !timedWords(reply, { keep: protocol.isSpeech });
+      const parts = solo ? win.parts.map((p) => ({ index: p.index, text: '' })) : splitReply(win, reply);
+      const out = [];
+      for (let i = 0; i < parts.length; i += 1) {
+        const p = win.parts[i];
+        let text = protocol.usableText(parts[i].text, p.len);
+        if (text == null && win.parts.length > 1 && p.samples) {
+          stats.soloRedecodes = (stats.soloRedecodes || 0) + 1;
+          text = await this.transcribe({ samples: p.samples, start: p.start, end: p.end }, { language });
+        }
+        out.push({ index: p.index, text });
+      }
+      return out;
     },
   };
 }
@@ -175,6 +190,7 @@ async function runFinalPass({ dir, transcriber, label, whisper = false, onProgre
     requests: ts.requests != null ? ts.requests : null,
     utterances: stats.utterances,
     packedWindows: whisper ? stats.packedWindows : null,
+    soloRedecodes: whisper ? (ts.soloRedecodes || 0) : null,
     echoSkipped: stats.echoSkipped,
     echoSkippedSeconds: round(stats.echoSkippedSeconds),
   };
@@ -191,7 +207,7 @@ async function runFinalPass({ dir, transcriber, label, whisper = false, onProgre
 function passLine(s) {
   const th = s.threads.length ? s.threads.map((t) => `${t.threads}${t.level != null ? ` (${t.level}%)` : ''}`).join(' → ') : '?';
   return `final pass done: ${s.model} · ${s.audioSeconds} s audio (${s.speechSeconds} s speech) in ${s.wallSeconds} s · RTF ${s.rtf}`
-    + ` · ${s.requests} requests${s.packedWindows != null ? ` / ${s.packedWindows} windows` : ''} for ${s.utterances} utterances`
+    + ` · ${s.requests} requests${s.packedWindows != null ? ` / ${s.packedWindows} windows${s.soloRedecodes ? ` (+${s.soloRedecodes} solo)` : ''}` : ''} for ${s.utterances} utterances`
     + ` · threads ${th} · echo skipped ${s.echoSkippedSeconds} s`;
 }
 
