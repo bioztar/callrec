@@ -18,8 +18,8 @@ const WORK = path.join(ROOT, 'vendor', 'whisper-build');
 const SRC = path.join(WORK, `whisper.cpp-${TAG.slice(1)}`);
 const OUT = path.join(ROOT, 'vendor', 'whisper');
 const EXE = process.platform === 'win32' ? 'whisper-server.exe' : 'whisper-server';
-// Windows compiler: `clangcl` (default) or `msvc` (CALLREC_WHISPER_TOOLCHAIN, for the CI comparison).
-const TOOLCHAIN = process.platform === 'win32' ? (process.env.CALLREC_WHISPER_TOOLCHAIN || 'clangcl') : 'default';
+// Windows compiler: `msvc` (default) or `clangcl` (CALLREC_WHISPER_TOOLCHAIN, for the CI comparison).
+const TOOLCHAIN = process.platform === 'win32' ? (process.env.CALLREC_WHISPER_TOOLCHAIN || 'msvc') : 'default';
 
 function run(cmd, args, opts = {}) {
   console.log(`$ ${cmd} ${args.join(' ')}`);
@@ -51,8 +51,8 @@ function cmakeFlags() {
     f.push('-DGGML_NATIVE=OFF', '-DGGML_AVX=ON', '-DGGML_AVX2=ON', '-DGGML_FMA=ON', '-DGGML_F16C=ON');
   }
   if (process.platform === 'win32') {
-    // clang-cl (Visual Studio's bundled LLVM): ggml's x86 kernels compile much
-    // better than under MSVC. Same static CRT, so still no redistributable.
+    // clang-cl (Visual Studio's bundled LLVM, same static CRT) measured no faster
+    // than MSVC on the windows-latest call bench (PR #6), so MSVC stays the default.
     if (TOOLCHAIN === 'clangcl') f.push('-T', 'ClangCL');
     f.push('-DGGML_OPENMP=OFF', '-DCMAKE_POLICY_DEFAULT_CMP0091=NEW', '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded');
   }

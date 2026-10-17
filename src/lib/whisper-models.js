@@ -36,7 +36,7 @@ const MODELS = {
     file: 'ggml-large-v3-q5_0.bin',
     bytes: 1081140203,
     sha256: 'd75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1',
-    label: 'Whisper large-v3, multilingual (1.1 GB) — final pass ≈ 0.8× call length on 8 threads (turbo ≈ 0.6×)',
+    label: 'Whisper large-v3, multilingual (1.1 GB) — similar accuracy, final pass ≈ 1.2× turbo\'s time',
     short: 'large-v3',
   },
 };

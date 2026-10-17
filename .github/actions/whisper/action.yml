@@ -5,8 +5,8 @@ inputs:
     description: Space-separated catalogue model ids (src/lib/model-catalog.js)
     default: small-q5_1
   toolchain:
-    description: Windows compiler for whisper.cpp (clangcl or msvc)
-    default: clangcl
+    description: Windows compiler for whisper.cpp (msvc or clangcl)
+    default: msvc
 runs:
   using: composite
   steps:
