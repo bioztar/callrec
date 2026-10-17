@@ -192,7 +192,9 @@ async function download({
     await new Promise((resolve, reject) => out.end((err) => (err ? reject(err) : resolve())));
   } catch (err) {
     done();
+    // Windows can't reuse a path whose handle is still open: wait for close.
     out.destroy();
+    if (!out.closed) await new Promise((r) => out.once('close', r));
     fs.rmSync(part, { force: true });
     if (why) return abortError();
     return { error: `Download interrupted: ${err.message}`, url };
