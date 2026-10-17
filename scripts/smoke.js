@@ -8,7 +8,11 @@
 //   - with Whisper + a fake mic playing test/fixtures/spanish.wav, the transcript contains the expected words,
 //   - "Them" lines are reported (they need real system audio playing; --require-them makes them mandatory).
 //
-//   node scripts/smoke.js <path-to-app-exe> [--model file] [--seconds 25] [--drain 600] [--require-them]
+//   node scripts/smoke.js <path-to-app-exe> [--model file] [--seconds 25] [--drain 600] [--require-them] [--teams]
+//
+// --teams: no autorun toggles; injected Teams signals (CALLREC_TEAMS_FAKE) start the
+// recording ('Meeting in "Weekly sync"' window + mic in use), take a screenshot, then end
+// the call; checks the call-named folder, the transcript header and the screenshot marker.
 
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -24,6 +28,7 @@ const model = opt('--model', path.join(__dirname, '..', 'vendor', 'models', 'ggm
 const requireThem = args.includes('--require-them');
 // --final <Parakeet model folder>: run the final pass with Parakeet (exercises the bundled sherpa-onnx).
 const finalDir = opt('--final', '');
+const teams = args.includes('--teams');
 if (!exe || !fs.existsSync(exe)) { console.error(`usage: smoke.js <app exe>  (got ${exe})`); process.exit(2); }
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'callrec-smoke-'));
@@ -38,8 +43,27 @@ const whisperModel = Object.keys(MODELS).find((id) => MODELS[id].file === path.b
 if (!whisperModel) { console.error(`smoke: ${model} is not a catalogue model`); process.exit(2); }
 fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ outputRoot: out, engine: 'whisper', language: 'es', liveModel: whisperModel, finalModel: finalDir ? 'parakeet-tdt-0.6b-v3' : whisperModel }));
 
+const teamsFake = path.join(root, 'teams-fake.json');
+if (teams) {
+  const call = { mic: true, windows: ['Chat | Ana Pérez | Microsoft Teams', 'Meeting in "Weekly sync" | Microsoft Teams'] };
+  const pollMs = 500;
+  const n = Math.round((seconds * 1000) / pollMs);
+  fs.writeFileSync(teamsFake, JSON.stringify({
+    pollMs,
+    endMs: 3000,
+    steps: [
+      { repeat: 4, mic: false, windows: ['Chat | Ana Pérez | Microsoft Teams'] },
+      { repeat: Math.floor(n / 2), ...call },
+      { repeat: 1, ...call, screenshot: true },
+      { repeat: n - Math.floor(n / 2), ...call },
+      { repeat: 1, mic: false, windows: [] },
+    ],
+  }));
+}
+
 const env = {
   ...process.env,
+  ...(teams ? { CALLREC_TEAMS_FAKE: teamsFake } : {}),
   CALLREC_AUTORUN_SEC: String(seconds),
   CALLREC_AUTORUN_DRAIN_SEC: String(drainSec),
   CALLREC_AUTORUN_REPORT: report,
@@ -64,6 +88,15 @@ child.on('exit', (code, signal) => {
   if (!fs.existsSync(report)) fail('no autorun report (app quit before finishing the meeting?)');
   const r = JSON.parse(fs.readFileSync(report, 'utf8'));
   if (!r.dir) fail(`no meeting folder; renderer log:\n${(r.log || []).join('\n')}`);
+  if (teams) {
+    if (!/ — Weekly sync$/.test(path.basename(r.dir))) fail(`folder not named after the call: ${path.basename(r.dir)}`);
+    const md = fs.readFileSync(path.join(r.dir, 'transcript.md'), 'utf8');
+    for (const want of ['- Call: Weekly sync (meeting, Teams)', '- Detected by: local signals', '- End: ']) if (!md.includes(want)) fail(`transcript header lacks "${want}"`);
+    if (!/\[\d\d:\d\d:\d\d screenshot 001\]/.test(md)) fail('no screenshot marker in the final transcript');
+    const shots = fs.existsSync(path.join(r.dir, 'screenshots')) ? fs.readdirSync(path.join(r.dir, 'screenshots')) : [];
+    if (!shots.some((f) => /^001 \d\d\.\d\d\.\d\d\.png$/.test(f))) fail(`no screenshot 001 (${shots.join(', ')})`);
+    console.log(`smoke: teams call → "${path.basename(r.dir)}", screenshot ${shots[0]}`);
+  }
   // Two-pass: the final pass ran over the kept channel audio, the live draft is kept.
   if (r.final !== 'done') fail(`final pass did not finish (${r.final})`);
   for (const f of ['audio.webm', 'transcript.md', 'transcript.json', 'transcript.draft.md', 'transcript.draft.json']) {
