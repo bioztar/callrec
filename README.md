@@ -121,17 +121,20 @@ takes 1 h).
 | model | final pass | Windows runner, 60 s | Windows runner, 4 min | 8-thread Linux VM, 4 min | WER Me (es) / Them (en), 4 min |
 |---|---|---|---|---|---|
 | Whisper large-v3-turbo q5_0 | before: one request per utterance | 33.4 | – | 6.58 | 4.6 % / 3.6 % |
-| Whisper large-v3-turbo q5_0 | **now: packed + echo skipped** | **3.54** | **2.71** | **0.55** | 3.5 % / 2.3 % |
+| Whisper large-v3-turbo q5_0 | **now: packed + echo skipped** | **4.69** | **3.28** | **0.70** | 6.9 % / 2.3 % |
 | Whisper large-v3 q5_0 | before | 37.2 | – | 7.84 (60 s) | – |
-| Whisper large-v3 q5_0 | **now** | **4.30** | **3.23** | **0.75** | 2.7 % / 2.6 % |
+| Whisper large-v3 q5_0 | **now** | **5.88** | **3.53** | **0.94** | 5.4 % / 2.6 % |
 | Parakeet TDT 0.6B v3 int8 | unchanged | – | 0.21 | 0.08 | 4.6 % / 3.3 % |
 
 RTF = wall time / call length. Windows runner: `windows-latest`, 4 vCPU AMD EPYC 7763, 4 threads, below-normal
 priority, as the app runs it; the 60 s rows are the first minute of the call (the old path takes ~33× call length
 there, too slow for CI on the full call). The 8-thread VM is an Intel Xeon on Linux; Windows on the runner is much
-slower per thread, so expect a laptop somewhere in between. On the runner whisper.cpp built with clang-cl
-(`-T ClangCL`) was not faster than MSVC (turbo 2.90 vs 2.71), so the release keeps the static MSVC build
-(`CALLREC_WHISPER_TOOLCHAIN=clangcl` builds the other one).
+slower per thread, so expect a laptop somewhere in between. The runner is noisy (about ±25 % between runs of
+the same code), so treat one run as a rough figure. The Me WER is higher than with the old path mostly because the
+cautious echo filter now decodes a few echo lines that Whisper translates into Spanish ("Bye." → "Adiós"), which
+the text check can't match; that is the price of never dropping real speech. whisper.cpp built with clang-cl
+(`-T ClangCL`) was faster in one run and slower in two (turbo 3.52 vs MSVC 3.28 on the last), so the release
+keeps the static MSVC build (`CALLREC_WHISPER_TOOLCHAIN=clangcl` builds the other one).
 
 ## Output
 
