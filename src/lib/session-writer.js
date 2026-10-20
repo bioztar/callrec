@@ -2,18 +2,20 @@
 
 const fs = require('fs');
 const path = require('path');
-const { folderName, uniqueDir } = require('./naming');
+const { folderName, callFolderName, uniqueDir } = require('./naming');
 const { renderMarkdown, renderJson } = require('./transcript');
 
 /// Writes one meeting folder incrementally so a crash keeps everything so far:
 /// audio chunks are appended as they arrive; transcript.md/json are rewritten
 /// on every final (they are small).
 class SessionWriter {
-  constructor({ root, title, engine, language, languageNote, now = () => new Date() }) {
+  constructor({ root, title, engine, language, languageNote, call = null, now = () => new Date() }) {
     this.now = now;
-    this.meta = { title: title || '', startedAt: now(), durationSec: 0, engine, language, languageNote };
+    this.meta = { title: title || '', startedAt: now(), durationSec: 0, engine, language, languageNote, markers: [] };
+    if (call) this.meta.call = { ...call, startedAt: new Date(call.startedAt || this.meta.startedAt).toISOString() };
     fs.mkdirSync(root, { recursive: true });
-    this.dir = uniqueDir(root, folderName(this.meta.startedAt, title));
+    const name = call ? callFolderName(this.meta.startedAt, title) : folderName(this.meta.startedAt, title);
+    this.dir = uniqueDir(root, name);
     fs.mkdirSync(this.dir);
     this.audioPath = path.join(this.dir, 'audio.webm');
     fs.writeFileSync(this.audioPath, '');
@@ -34,8 +36,15 @@ class SessionWriter {
     this._flush();
   }
 
+  /// A note at `atSec` since start, e.g. { text: 'screenshot 001', clock: '10:02:03' }.
+  addMarker(atSec, text, clock) {
+    this.meta = { ...this.meta, markers: [...this.meta.markers, { at: Math.round(atSec * 10) / 10, clock, text }] };
+    this._flush();
+  }
+
   finish(durationSec) {
     this.meta = { ...this.meta, durationSec: Math.max(durationSec, this.meta.durationSec) };
+    if (this.meta.call && !this.meta.call.endedAt) this.meta.call = { ...this.meta.call, endedAt: this.now().toISOString() };
     this._flush();
     return this.dir;
   }

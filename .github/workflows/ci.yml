@@ -115,3 +115,6 @@ jobs:
           $code = $LASTEXITCODE
           Stop-Job $player; Receive-Job $player
           exit $code
+      - name: Smoke — Teams auto-record with injected signals (no real Teams), screenshot during the call
+        shell: pwsh
+        run: node scripts/smoke.js dist\win-unpacked\callrec.exe --teams --seconds 20 --final vendor\models\parakeet-tdt-0.6b-v3-int8

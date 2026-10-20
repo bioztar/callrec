@@ -277,6 +277,8 @@ function createFinalQueue({ file, run, onState = () => {}, onDone = () => {}, on
     add(dir, { run = true } = {}) { if (!dirs.includes(dir)) { dirs.push(dir); save(); } return run ? pump() : Promise.resolve(); },
     /// Resume after launch / retry after the final model got installed.
     kick: pump,
+    /// Forget a meeting (deleted by the user).
+    remove(dir) { if (dirs.includes(dir)) drop(dir); },
     pending: () => [...dirs],
     idle: () => busy || Promise.resolve(),
   };
