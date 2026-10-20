@@ -76,23 +76,22 @@ test('detector: start needs mic and a call window', () => {
   assert.deepEqual(h.events, [['start', 'Weekly sync', 'local']]);
 });
 
-test('detector: 15 s end debounce, reconnect within 15 s is one recording', () => {
+test('detector: 5 s end debounce, reconnect within 5 s is one recording', () => {
   const h = harness();
   h.step(CALL);
-  for (let i = 0; i < 6; i += 1) h.step(NONE); // 12 s gone
+  for (let i = 0; i < 3; i += 1) h.step(NONE); // 4 s gone
   h.step(CALL);
-  for (let i = 0; i < 7; i += 1) h.step(NONE); // 14 s gone
+  for (let i = 0; i < 3; i += 1) h.step(NONE); // 4 s gone
   assert.equal(h.events.length, 1);
-  h.step(NONE);
   h.step(NONE);
   assert.deepEqual(h.events.map((e) => e[0]), ['start', 'end']);
 });
 
-test('detector: mic released but window still open keeps the call', () => {
+test('detector: mic released ends the call even if the call window lingers', () => {
   const h = harness();
   h.step(CALL);
-  for (let i = 0; i < 20; i += 1) h.step({ mic: false, windows: CALL.windows });
-  assert.equal(h.events.length, 1);
+  for (let i = 0; i < 4; i += 1) h.step({ mic: false, windows: CALL.windows });
+  assert.deepEqual(h.events.map((e) => e[0]), ['start', 'end']);
 });
 
 test('detector: manual recording has precedence, no second start', () => {
@@ -149,13 +148,13 @@ test('detector: unrecognised window never holds a call open', () => {
   h.step({ mic: true, windows: ['Some pop-out | Microsoft Teams'] });
   for (let i = 0; i < 9; i += 1) h.step({ mic: false, windows: ['Some pop-out | Microsoft Teams'] });
   assert.deepEqual(h.events.map((e) => e[0]), ['start', 'end']);
-  // A recognised window does hold it (and upgrades the name).
+  // A recognised window upgrades the name but does not hold the call open.
   const k = harness();
   k.step({ mic: true, windows: ['Some pop-out | Microsoft Teams'] });
   k.step({ mic: true, windows: ['Call with Ana Pérez | Microsoft Teams'] });
   assert.equal(k.d.call.name, 'Call with Ana Pérez');
   for (let i = 0; i < 20; i += 1) k.step({ mic: false, windows: ['Some pop-out | Microsoft Teams', 'Call with Ana Pérez | Microsoft Teams'] });
-  assert.equal(k.events.length, 1);
+  assert.deepEqual(k.events.map((e) => e[0]), ['start', 'end']);
   // API out of meeting + mic released + only unrecognised windows → ends.
   const a = harness();
   a.step({ api: true, mic: false, windows: ['Weekly sync | Microsoft Teams'] });

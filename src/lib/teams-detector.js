@@ -2,7 +2,7 @@
 
 const { parseTitle, callName } = require('./teams-titles');
 
-const END_DEBOUNCE_MS = 15000;
+const END_DEBOUNCE_MS = 5000;
 const POLL_MS = 2000;
 
 /// Picks the call window from Teams window titles: a positive call title first,
@@ -22,8 +22,8 @@ function findCallWindow(titles = []) {
 ///   signals: { mic: bool, api: true|false|null (null = API not connected), windows: [titles] }
 ///   hooks:   isRecording() → bool, enabled() → bool, onStart(call), onEnd(call)
 /// start = (mic or API in-meeting) and a call window (recognised or not);
-/// end = mic/API gone and no recognised call window, for 15 s. Unrecognised
-/// windows never keep a call open (a lingering pop-out must not record forever).
+/// end = mic/API gone for 5 s. Windows only start a call, never hold one open:
+/// a meeting chat or pop-out left open after hanging up must not keep recording.
 function createTeamsDetector({ isRecording = () => false, enabled = () => true, onStart = () => {}, onEnd = () => {}, endDebounceMs = END_DEBOUNCE_MS, now = () => Date.now() } = {}) {
   let call = null;
   let goneSince = null;
@@ -52,7 +52,7 @@ function createTeamsDetector({ isRecording = () => false, enabled = () => true, 
       else if (enabled()) { call.recording = true; onStart(call); }
       return call;
     }
-    if (inCall || (win && win.positive)) {
+    if (inCall) {
       goneSince = null;
       if (win && win.kind !== 'unknown' && call.kind === 'unknown') Object.assign(call, { title: win.title, kind: win.kind, name: callName(win) });
       return call;

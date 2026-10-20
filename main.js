@@ -566,7 +566,7 @@ function stopAutoRecording(discard) {
   toWindow('stop-recording');
 }
 
-/// The call ended (mic + window gone for 15 s): stop like the Stop button.
+/// The call ended (mic/API gone for 5 s): stop like the Stop button.
 function endAutoRecording(ended) {
   if (!autoCall || autoCall.id !== ended.id || !writer) return;
   console.error('[teams] call ended; stopping');

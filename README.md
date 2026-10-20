@@ -147,8 +147,8 @@ tray menu; it is on by default. Turning it off affects the next call, not one th
 - **Name:** the folder is `YYYY-MM-DD HH.MM — <name>`. The name is the meeting subject, `Call with <person>` for a
   1:1, the group or chat name for a group call, or `Teams call` when callrec does not recognise the window title. The transcript header
   adds the call type, its start and end time, and how it was detected.
-- **End:** recording stops about 15 s after Teams releases the microphone and the call window is gone, so a short
-  drop and reconnect stays one recording. A Teams window callrec does not recognise never keeps a recording going.
+- **End:** recording stops about 5 s after Teams releases the microphone (or the Teams API says the meeting is over),
+  so a very short drop stays one recording. A Teams window left open after the call never keeps a recording going.
 - **Stop** keeps it stopped for the rest of that call. **Discard** stops it and deletes the folder.
   In the notification at call start that is one click; the tray's **Discard this recording** asks
   first ("Delete this recording (12 min) and its transcript?", default **Keep**).
