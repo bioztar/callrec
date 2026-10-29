@@ -827,7 +827,8 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', (_e, argv) => {
     const act = toastLib.parseActionArgv(argv);
-    if (act) runToastAction(act); else showWindow();
+    if (act) runToastAction(act);
+    else if (!loginItem.isHiddenLaunch(argv)) showWindow(); // a re-fired login item must not pop the window
   });
 }
 
