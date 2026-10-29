@@ -26,6 +26,7 @@ const { createRecordingLifecycle } = require('./src/lib/recording-lifecycle');
 const platform = require('./src/lib/platform');
 const { createDisplayMediaHandler } = require('./src/lib/display-media');
 const { createSettings } = require('./src/lib/settings');
+const loginItem = require('./src/lib/login-item');
 const { SessionWriter } = require('./src/lib/session-writer');
 const { nativeLocale, deepgramLanguage, LANGUAGES } = require('./src/lib/engines');
 const teamsDetectorLib = require('./src/lib/teams-detector');
@@ -99,6 +100,20 @@ function currentSettings() {
 
 // ---- window ----------------------------------------------------------------
 
+// Started by the Windows login item: first window stays hidden (tray only).
+let startHidden = loginItem.isHiddenLaunch(process.argv);
+
+function applyLoginItem() {
+  const opts = loginItem.loginItemSettings({
+    platform: process.platform,
+    isPackaged: app.isPackaged,
+    enabled: settings.get().launchAtLogin !== false,
+    env: process.env,
+    execPath: process.execPath,
+  });
+  if (opts) app.setLoginItemSettings(opts);
+}
+
 function showWindow() {
   if (!win || win.isDestroyed()) { createWindow(); return; }
   if (win.isMinimized()) win.restore();
@@ -116,7 +131,7 @@ function createWindow() {
     // macOS: native traffic lights inset top-left. Windows: the standard title bar.
     ...(IS_MAC ? { titleBarStyle: 'hiddenInset' } : { autoHideMenuBar: true }),
     backgroundColor: '#14161a',
-    show: !(AUTORUN_SEC > 0 && process.env.CALLREC_AUTORUN_HIDDEN === '1'),
+    show: !(AUTORUN_SEC > 0 && process.env.CALLREC_AUTORUN_HIDDEN === '1') && !(startHidden && trayCtl),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -124,6 +139,7 @@ function createWindow() {
       backgroundThrottling: false, // keeps recording at full rate while hidden in the tray
     },
   });
+  startHidden = false; // later windows (tray click) open normally
   win.loadFile(path.join(__dirname, 'src', 'renderer', 'index.html'));
   // Test hook: CALLREC_AUTORUN_SEC=N records for N seconds then quits (no UI clicks needed).
   if (AUTORUN_SEC > 0) {
@@ -176,6 +192,7 @@ function trayState() {
     shortcut: settings.get().shortcut,
     screenshotShortcut: settings.get().screenshotShortcut,
     autoRecordTeams: settings.get().autoRecordTeams !== false,
+    launchAtLogin: settings.get().launchAtLogin !== false,
     autoRecording: Boolean(autoCall && writer && writer.dir === autoCall.dir),
   };
 }
@@ -232,6 +249,7 @@ function createTray() {
         toggle: toggleRecording,
         screenshot: takeScreenshot,
         autoRecord: (on) => { settings.set({ autoRecordTeams: on }); trayCtl.refresh(); }, // future calls only
+        launchAtLogin: (on) => { settings.set({ launchAtLogin: on }); applyLoginItem(); trayCtl.refresh(); },
         discard: confirmTrayDiscard,
         openFolder: openRecordingsFolder,
         quit: requestQuit,
@@ -316,6 +334,7 @@ function wireIpc() {
 
   ipcMain.handle('settings:set', (_e, patch) => {
     settings.set(patch);
+    if (patch && 'launchAtLogin' in patch) applyLoginItem();
     const ok = patch && 'shortcut' in patch ? registerShortcut(patch.shortcut) : true;
     const shotOk = patch && 'screenshotShortcut' in patch ? registerScreenshotShortcut(patch.screenshotShortcut) : true;
     if (trayCtl) trayCtl.refresh();
@@ -839,6 +858,7 @@ app.whenReady().then(() => {
   registerShortcut(settings.get().shortcut);
   registerScreenshotShortcut(settings.get().screenshotShortcut);
   createTray();
+  applyLoginItem();
   createWindow();
   if (process.platform === 'win32') powerMonitor.on('shutdown', onSessionEnd);
   startTeams();

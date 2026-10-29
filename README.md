@@ -144,6 +144,9 @@ items (**Stop recording**, **Discard this recording**) while it runs. It works f
 1:1 calls and group calls in the new Teams app (`ms-teams.exe`). Turn it off with **Auto-record Teams calls** in the
 tray menu; it is on by default. Turning it off affects the next call, not one that is being recorded.
 
+callrec also starts with Windows, silently into the tray, so this is always armed. Turn it off with **Start with
+Windows** in the tray menu or Settings (on by default; Windows only).
+
 - **Name:** the folder is `YYYY-MM-DD HH.MM — <name>`. The name is the meeting subject, `Call with <person>` for a
   1:1, the group or chat name for a group call, or `Teams call` when callrec does not recognise the window title. The transcript header
   adds the call type, its start and end time, and how it was detected.

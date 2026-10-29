@@ -10,6 +10,7 @@ const DEFAULTS = {
   shortcut: 'CommandOrControl+Shift+R',
   screenshotShortcut: 'Control+Shift+F8',
   autoRecordTeams: true,
+  launchAtLogin: true, // Windows only; ignored elsewhere
 };
 
 /// JSON settings file; the Deepgram key is stored only as `deepgramKeyEnc`

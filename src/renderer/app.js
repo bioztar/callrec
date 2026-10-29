@@ -385,6 +385,7 @@ function applySettings(s) {
   $('setShortcut').value = s.shortcut;
   $('setShotShortcut').value = s.screenshotShortcut || '';
   $('teamsApiNote').hidden = s.platform !== 'win32';
+  $('setLaunchAtLogin').checked = s.launchAtLogin !== false;
   $('keyState').textContent = s.hasDeepgramKey ? '(saved)' : '(not set)';
   if (!session) { els.engine.value = s.engine; els.language.value = s.language; }
   refreshLangNote();
@@ -533,6 +534,10 @@ api.on('final:state', (st) => {
     const res = await api.setSettings({ screenshotShortcut: $('setShotShortcut').value.trim() });
     applySettings(res.settings);
     $('shotShortcutState').textContent = res.screenshotShortcutOk ? '(applied)' : '(invalid or already taken — not registered)';
+  });
+  $('setLaunchAtLogin').addEventListener('change', async (e) => {
+    const res = await api.setSettings({ launchAtLogin: e.target.checked });
+    applySettings(res.settings);
   });
   $('testBtn').addEventListener('click', testAudio);
 }());
