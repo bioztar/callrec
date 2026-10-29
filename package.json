@@ -1,6 +1,6 @@
 {
   "name": "callrec",
-  "version": "0.4.0",
+  "version": "0.5.0-rc.1",
   "private": true,
   "description": "Desktop meeting recorder: system audio + mic, live on-device transcript, folder per meeting.",
   "license": "MIT",
